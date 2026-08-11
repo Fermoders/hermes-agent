@@ -3,6 +3,8 @@
 Tests the unified streaming API call, delta callbacks, tool-call
 suppression, provider fallback, and CLI streaming display.
 """
+import base64
+import importlib.util
 import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -15,7 +17,7 @@ import pytest
 
 def _make_stream_chunk(
     content=None, tool_calls=None, finish_reason=None,
-    model=None, reasoning_content=None, usage=None,
+    model=None, reasoning_content=None, usage=None, images=None,
 ):
     """Build a mock streaming chunk matching OpenAI's ChatCompletionChunk shape."""
     delta = SimpleNamespace(
@@ -23,6 +25,7 @@ def _make_stream_chunk(
         tool_calls=tool_calls,
         reasoning_content=reasoning_content,
         reasoning=None,
+        images=images,
     )
     choice = SimpleNamespace(
         index=0,
@@ -95,6 +98,47 @@ class TestStreamingAccumulator:
         assert response.choices[0].finish_reason == "stop"
         assert response.usage is not None
         assert response.usage.completion_tokens == 3
+
+    @patch("run_agent.AIAgent._create_request_openai_client")
+    @patch("run_agent.AIAgent._close_request_openai_client")
+    def test_generated_image_delta_is_persisted_as_media(
+        self, mock_close, mock_create, tmp_path, monkeypatch
+    ):
+        """Provider image deltas become real files and MEDIA directives."""
+        from pathlib import Path
+        from run_agent import AIAgent
+
+        raw_png = bytes.fromhex("89504e470d0a1a0a") + b"transport-test" + bytes.fromhex("49454e44ae426082")
+        data_url = "data:image/png;base64," + base64.b64encode(raw_png).decode("ascii")
+        chunks = [
+            _make_stream_chunk(
+                content="Generated.",
+                images=[{"type": "image_url", "image_url": {"url": data_url}}],
+            ),
+            _make_stream_chunk(finish_reason="stop", model="test-model"),
+        ]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = iter(chunks)
+        mock_create.return_value = mock_client
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+        agent = AIAgent(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="test/model",
+            quiet_mode=True,
+            skip_context_files=True,
+            skip_memory=True,
+        )
+        agent.api_mode = "chat_completions"
+        agent._interrupt_requested = False
+
+        response = agent._interruptible_streaming_api_call({})
+        content = response.choices[0].message.content
+        assert content.startswith("Generated.\nMEDIA:")
+        media_path = Path(content.split("MEDIA:", 1)[1].strip())
+        assert tmp_path / "hermes" / "media" / "generated" in media_path.parents
+        assert media_path.read_bytes() == raw_png
 
     @patch("run_agent.AIAgent._create_request_openai_client")
     @patch("run_agent.AIAgent._close_request_openai_client")
@@ -626,7 +670,7 @@ class TestCodexStreamCallbacks:
         # 1 initial + 1 retry = 2 calls
         assert call_count["n"] == 2
 
-    def test_codex_create_stream_fallback_refreshes_activity_on_every_event(self):
+    def test_codex_create_stream_fallback_refreshes_activity_on_meaningful_events(self):
         from run_agent import AIAgent
 
         agent = AIAgent(
@@ -673,13 +717,57 @@ class TestCodexStreamCallbacks:
             client=mock_client,
         )
 
-        assert touch_calls.count("receiving stream response") == len(events)
+        assert touch_calls.count("receiving stream response") == 3
 
 
+def test_chat_stream_progress_ignores_empty_transport_chunks():
+    from agent.chat_completion_helpers import _stream_chunk_has_meaningful_progress
+
+    empty = _make_stream_chunk()
+    usage_only = _make_stream_chunk(usage=SimpleNamespace(prompt_tokens=1))
+    text = _make_stream_chunk(content="hello")
+    finished = _make_stream_chunk(finish_reason="stop")
+
+    assert _stream_chunk_has_meaningful_progress(empty) is False
+    assert _stream_chunk_has_meaningful_progress(usage_only) is False
+    assert _stream_chunk_has_meaningful_progress(text) is True
+    assert _stream_chunk_has_meaningful_progress(finished) is True
+
+
+def test_anthropic_stream_progress_ignores_lifecycle_only_events():
+    from agent.chat_completion_helpers import _anthropic_event_has_meaningful_progress
+
+    assert _anthropic_event_has_meaningful_progress(
+        SimpleNamespace(type="message_start")
+    ) is False
+    assert _anthropic_event_has_meaningful_progress(
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="thinking_delta", thinking="thinking"),
+        )
+    ) is True
+    assert _anthropic_event_has_meaningful_progress(
+        SimpleNamespace(
+            type="content_block_start",
+            content_block=SimpleNamespace(type="tool_use", name="terminal"),
+        )
+    ) is True
+    assert _anthropic_event_has_meaningful_progress(
+        SimpleNamespace(
+            type="message_delta",
+            delta=SimpleNamespace(stop_reason="end_turn"),
+        )
+    ) is True
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("anthropic") is None,
+    reason="optional anthropic SDK is not installed",
+)
 class TestAnthropicStreamCallbacks:
-    """Verify Anthropic streaming refreshes activity on every event."""
+    """Verify Anthropic streaming refreshes activity on useful events."""
 
-    def test_anthropic_stream_refreshes_activity_on_every_event(self):
+    def test_anthropic_stream_refreshes_activity_on_meaningful_events(self):
         from run_agent import AIAgent
 
         agent = AIAgent(
@@ -697,6 +785,7 @@ class TestAnthropicStreamCallbacks:
         agent._touch_activity = lambda desc: touch_calls.append(desc)
 
         events = [
+            SimpleNamespace(type="message_start"),
             SimpleNamespace(
                 type="content_block_delta",
                 delta=SimpleNamespace(type="text_delta", text="Hello"),
@@ -730,7 +819,7 @@ class TestAnthropicStreamCallbacks:
 
         agent._interruptible_streaming_api_call({})
 
-        assert touch_calls.count("receiving stream response") == len(events)
+        assert touch_calls.count("receiving stream response") == len(events) - 1
         mock_stream.close.assert_called_once()
 
     @patch("run_agent.AIAgent._rebuild_anthropic_client")

@@ -2335,17 +2335,20 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
             _resolved_modified = [
                 _path_to_resolved.get(_p) or _p for _p in _paths_to_check
             ]
+            if result_dict.get("no_change"):
+                _resolved_modified = []
             # Refresh stored timestamps for all successfully-patched paths so
             # consecutive edits by this task don't trigger false warnings.
             if not result_dict.get("error"):
                 result_dict["files_modified"] = _resolved_modified
                 if len(_resolved_modified) == 1:
                     result_dict["resolved_path"] = _resolved_modified[0]
-                _mark_verification_stale(task_id, _resolved_modified, session_id=session_id)
+                if _resolved_modified:
+                    _mark_verification_stale(task_id, _resolved_modified, session_id=session_id)
                 for _p in _paths_to_check:
                     _update_read_timestamp(_p, task_id)
                     _r = _path_to_resolved.get(_p)
-                    if _r:
+                    if _r and not result_dict.get("no_change"):
                         file_state.note_write(task_id, _r)
                 # Successful patch: clear any prior consecutive-failure
                 # counters for the touched paths so a future failure on

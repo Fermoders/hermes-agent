@@ -144,7 +144,23 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   notify: payload => ipcRenderer.invoke('hermes:notify', payload),
   requestMicrophoneAccess: () => ipcRenderer.invoke('hermes:requestMicrophoneAccess'),
   readWindowBelow: () => ipcRenderer.invoke('hermes:window:readBelow'),
-  readFileDataUrl: filePath => ipcRenderer.invoke('hermes:readFileDataUrl', filePath),
+  readFileDataUrl: async filePath => {
+    const result = await ipcRenderer.invoke('hermes:readFileDataUrl', filePath)
+
+    if (typeof result === 'string') {
+      return result
+    }
+
+    if (result?.ok && typeof result.dataUrl === 'string') {
+      return result.dataUrl
+    }
+
+    const error = new Error(String(result?.error || 'File preview failed.')) as Error & { code?: string }
+    if (result?.code) {
+      error.code = String(result.code)
+    }
+    throw error
+  },
   readFileDataUrlForAttach: filePath => ipcRenderer.invoke('hermes:readFileDataUrlForAttach', filePath),
   dataUrlReadMax: {
     get: () => ipcRenderer.invoke('hermes:data-url-read-max:get'),

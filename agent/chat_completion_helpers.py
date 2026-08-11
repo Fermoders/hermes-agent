@@ -15,7 +15,10 @@ sites unchanged.  Symbols that tests patch on ``run_agent`` (e.g.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import contextvars
+import hashlib
 import json
 import logging
 import math
@@ -28,7 +31,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from hermes_cli.timeouts import get_provider_request_timeout, get_provider_stale_timeout
-from hermes_constants import PARTIAL_STREAM_STUB_ID, FINISH_REASON_LENGTH
+from hermes_constants import PARTIAL_STREAM_STUB_ID, FINISH_REASON_LENGTH, get_hermes_home
 from agent.error_classifier import FailoverReason
 from agent.errors import EmptyStreamError
 from agent.turn_context import substitute_api_content
@@ -46,6 +49,111 @@ from utils import base_url_host_matches, base_url_hostname, env_float, env_int
 
 logger = logging.getLogger(__name__)
 _OPENROUTER_PROVIDER_SORT_VALUES = {"throughput", "latency", "price"}
+
+_GENERATED_IMAGE_MIME_SUFFIX = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+_MAX_GENERATED_IMAGE_BYTES = 25 * 1024 * 1024
+
+
+def _stream_chunk_has_meaningful_progress(chunk: Any) -> bool:
+    """Return whether a chat-completions chunk advances the model response."""
+    choices = getattr(chunk, "choices", None) or []
+    for choice in choices:
+        if getattr(choice, "finish_reason", None):
+            return True
+        delta = getattr(choice, "delta", None)
+        if delta is None:
+            continue
+        if getattr(delta, "content", None):
+            return True
+        if getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None):
+            return True
+        if getattr(delta, "tool_calls", None) or getattr(delta, "images", None):
+            return True
+        extra = getattr(delta, "model_extra", None)
+        if isinstance(extra, dict) and (extra.get("images") or extra.get("tool_calls")):
+            return True
+    return False
+
+
+def _anthropic_event_has_meaningful_progress(event: Any) -> bool:
+    """Return whether an Anthropic event contains output or a terminal state."""
+    event_type = getattr(event, "type", None)
+    if event_type == "content_block_start":
+        block = getattr(event, "content_block", None)
+        return getattr(block, "type", None) == "tool_use"
+    if event_type == "content_block_delta":
+        delta = getattr(event, "delta", None)
+        delta_type = getattr(delta, "type", None)
+        if delta_type == "text_delta":
+            return bool(getattr(delta, "text", None))
+        if delta_type == "thinking_delta":
+            return bool(getattr(delta, "thinking", None))
+        if delta_type in {"input_json_delta", "signature_delta", "citations_delta"}:
+            return True
+        return False
+    if event_type == "message_delta":
+        delta = getattr(event, "delta", None)
+        return bool(getattr(delta, "stop_reason", None))
+    return event_type in {"message_stop", "error"}
+
+
+def _persist_generated_stream_images(delta: Any, seen: set[str]) -> list[str]:
+    """Persist OpenAI-compatible ``delta.images`` data URLs for MEDIA delivery."""
+    images = getattr(delta, "images", None)
+    if images is None:
+        extra = getattr(delta, "model_extra", None)
+        if isinstance(extra, dict):
+            images = extra.get("images")
+    if not isinstance(images, list):
+        return []
+
+    media_tags: list[str] = []
+    for image in images:
+        if hasattr(image, "model_dump"):
+            image = image.model_dump(exclude_none=True)
+        if not isinstance(image, dict):
+            continue
+        image_url = image.get("image_url")
+        if hasattr(image_url, "model_dump"):
+            image_url = image_url.model_dump(exclude_none=True)
+        url = image_url.get("url") if isinstance(image_url, dict) else None
+        if not isinstance(url, str) or not url.startswith("data:image/"):
+            continue
+        try:
+            header, encoded = url.split(",", 1)
+            mime = header[5:].split(";", 1)[0].lower()
+            if ";base64" not in header.lower() or mime not in _GENERATED_IMAGE_MIME_SUFFIX:
+                continue
+            if len(encoded) > ((_MAX_GENERATED_IMAGE_BYTES + 2) // 3) * 4:
+                logger.warning("Ignoring oversized generated image payload (%d base64 chars)", len(encoded))
+                continue
+            digest = hashlib.sha256(encoded.encode("ascii")).hexdigest()
+            if digest in seen:
+                continue
+            raw = base64.b64decode(encoded, validate=True)
+            if not raw or len(raw) > _MAX_GENERATED_IMAGE_BYTES:
+                continue
+        except (ValueError, UnicodeEncodeError, binascii.Error):
+            logger.warning("Ignoring malformed generated image data URL from provider")
+            continue
+
+        output_dir = get_hermes_home() / "media" / "generated"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        suffix = _GENERATED_IMAGE_MIME_SUFFIX[mime]
+        output_path = output_dir / f"generated_{time.strftime('%Y%m%d_%H%M%S')}_{digest[:12]}{suffix}"
+        try:
+            output_path.write_bytes(raw)
+        except OSError as exc:
+            logger.warning("Could not persist provider-generated image: %s", exc)
+            continue
+        seen.add(digest)
+        media_tags.append(f"MEDIA:{output_path.resolve()}")
+    return media_tags
 
 # When the fallback chain is fully exhausted on a non-rate-limit failure
 # (e.g. every provider returns a non-retryable client error like HTTP 400),
@@ -3264,6 +3372,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         # connect/pool cover TCP handshake, not model inference.
         _conn_cap = min(_base_timeout, 60.0) if _provider_timeout_cfg is not None else 30.0
         content_parts: list = []
+        generated_image_digests: set[str] = set()
         tool_calls_acc: dict = {}
         tool_gen_notified: set = set()
         # Ollama-compatible endpoints reuse index 0 for every tool call
@@ -3396,8 +3505,9 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
             # ownership of closing the underlying provider stream.
             _set_request_stream_handle(stream)
         for chunk in stream:
-            last_chunk_time["t"] = time.time()
-            agent._touch_activity("receiving stream response")
+            if _stream_chunk_has_meaningful_progress(chunk):
+                last_chunk_time["t"] = time.time()
+                agent._touch_activity("receiving stream response")
 
             # Update per-attempt diagnostic counters.  Best-effort —
             # failures are swallowed so the streaming hot path is never
@@ -3496,6 +3606,17 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                         agent._record_streamed_assistant_text(delta.content)
                     except Exception:
                         pass
+
+            # Image-generation relays return completed images outside
+            # ``content`` under ``delta.images``. Persist and expose them as
+            # MEDIA directives instead of silently dropping the attachment.
+            if delta:
+                for media_tag in _persist_generated_stream_images(delta, generated_image_digests):
+                    media_delta = f"\n{media_tag}\n"
+                    content_parts.append(media_delta)
+                    _fire_first_delta()
+                    agent._fire_stream_delta(media_delta)
+                    deltas_were_sent["yes"] = True
 
             # Accumulate tool call deltas — notify display on first name
             if delta and delta.tool_calls:
@@ -3871,8 +3992,9 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         try:
             for event in stream:
                 saw_stream_event = True
-                last_chunk_time["t"] = time.time()
-                agent._touch_activity("receiving stream response")
+                if _anthropic_event_has_meaningful_progress(event):
+                    last_chunk_time["t"] = time.time()
+                    agent._touch_activity("receiving stream response")
                 try:
                     _diag["chunks"] = int(_diag.get("chunks", 0)) + 1
                     if _diag.get("first_chunk_at") is None:

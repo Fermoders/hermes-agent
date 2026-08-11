@@ -264,6 +264,7 @@ def _validate_operations(
 
     errors: List[str] = []
     real_change_count = 0
+    already_applied_change_count = 0
 
     # Virtual filesystem overlay so inter-op state (notably a MOVE creating the
     # destination a later UPDATE targets) validates correctly. Maps a path to
@@ -335,6 +336,7 @@ def _validate_operations(
                     # performs the same skip.
                     from tools.fuzzy_match import is_already_applied
                     if is_already_applied(simulated or "", search_pattern, replacement):
+                        already_applied_change_count += 1
                         continue
                     label = f"'{hunk.context_hint}'" if hunk.context_hint else "(no hint)"
                     msg = (
@@ -385,10 +387,31 @@ def _validate_operations(
 
         # ADD: parent directory creation handled by write_file; no pre-check needed.
 
-    if not errors and real_change_count == 0:
+    if not errors and real_change_count == 0 and already_applied_change_count == 0:
         errors.append("Patch contains no changes (only context lines were provided)")
 
     return errors
+
+
+def _operation_change_counts(operations: List[PatchOperation]) -> tuple[int, int]:
+    """Return ``(declared_changes, inert_context_hunks)`` for parsed operations.
+
+    UPDATE hunks with a ``+`` or ``-`` line declare a requested edit even when
+    validation later recognizes that edit as already applied.  Hunks containing
+    context only are inert and must not turn a malformed patch into success.
+    """
+    declared_changes = 0
+    inert_context_hunks = 0
+    for op in operations:
+        if op.operation != OperationType.UPDATE:
+            declared_changes += 1
+            continue
+        for hunk in op.hunks:
+            if any(line.prefix in {"+", "-"} for line in hunk.lines):
+                declared_changes += 1
+            else:
+                inert_context_hunks += 1
+    return declared_changes, inert_context_hunks
 
 
 def apply_v4a_operations(operations: List[PatchOperation],
@@ -420,6 +443,8 @@ def apply_v4a_operations(operations: List[PatchOperation],
             error="Patch validation failed (no files were modified):\n"
                   + "\n".join(f"  • {e}" for e in validation_errors),
         )
+
+    declared_changes, _inert_context_hunks = _operation_change_counts(operations)
 
     # ---- Phase 2: apply ----
     files_modified = []
@@ -507,6 +532,10 @@ def apply_v4a_operations(operations: List[PatchOperation],
                   + "\n".join(f"  • {e}" for e in errors),
         )
 
+    no_change = declared_changes > 0 and not combined_diff.strip()
+    if no_change:
+        files_modified = []
+
     return PatchResult(
         success=True,
         diff=combined_diff,
@@ -515,6 +544,11 @@ def apply_v4a_operations(operations: List[PatchOperation],
         files_deleted=files_deleted,
         lint=lint_results if lint_results else None,
         lsp_diagnostics=combined_lsp,
+        no_change=no_change,
+        note=(
+            "Patch was already applied; no files were modified."
+            if no_change else None
+        ),
     )
 
 
@@ -701,6 +735,12 @@ def _apply_update(op: PatchOperation, file_ops: Any) -> Tuple[bool, str, Optiona
             else:
                 new_content = new_content.rstrip('\n') + '\n' + insert_text + '\n'
     
+    # A fully already-applied UPDATE must be a true no-op.  Besides avoiding an
+    # unnecessary disk write, this prevents lint/LSP hooks, mtime changes, and
+    # file-state notifications from firing for content that did not change.
+    if new_content == current_content:
+        return True, "", None, None
+
     # Write new content — pass current_content (already read above) to avoid
     # a redundant cat subprocess inside write_file.  Fall back to the
     # two-argument form when the file_ops implementation doesn't accept

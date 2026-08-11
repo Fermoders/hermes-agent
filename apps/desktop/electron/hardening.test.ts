@@ -14,6 +14,7 @@ import {
   DEFAULT_FETCH_TIMEOUT_MS,
   encryptDesktopSecret,
   readFileDataUrlForIpc,
+  readFilePreviewDataUrlForIpc,
   resolveDirectoryForIpc,
   resolveReadableFileForIpc,
   resolveRequestedPathForIpc,
@@ -249,6 +250,24 @@ test('resolveReadableFileForIpc validates existence type size and sensitivity', 
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true })
   }
+})
+
+test('preview data URL helper returns missing-file results without rejecting IPC', async () => {
+  const filePath = path.join(os.tmpdir(), `hermes-removed-preview-${process.pid}.png`)
+  fs.rmSync(filePath, { force: true })
+
+  assert.deepEqual(
+    await readFilePreviewDataUrlForIpc(filePath, {
+      maxBytes: 1024,
+      mimeType: 'image/png',
+      purpose: 'File preview'
+    }),
+    {
+      ok: false,
+      code: 'ENOENT',
+      error: 'File preview failed: file does not exist.'
+    }
+  )
 })
 
 test('resolveReadableFileForIpc blocks common sensitive files', async () => {

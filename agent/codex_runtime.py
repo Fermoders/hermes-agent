@@ -1272,9 +1272,23 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
         agent._fire_streamed_codex_commentary(text)
 
     def _on_event(event: Any) -> None:
-        # TTFB watchdog and activity touch — runs once per SSE event.
-        agent._codex_stream_last_event_ts = time.time()
-        agent._touch_activity("receiving stream response")
+        # Lifecycle/heartbeat events do not reset the stale timer. Only model
+        # output or a terminal event proves that the response advanced.
+        event_type = str(getattr(event, "type", "") or "")
+        if event_type in {
+            "response.output_text.delta",
+            "response.reasoning_summary_text.delta",
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+            "response.output_item.added",
+            "response.output_item.done",
+            "response.completed",
+            "response.failed",
+            "response.incomplete",
+            "error",
+        }:
+            agent._codex_stream_last_event_ts = time.time()
+            agent._touch_activity("receiving stream response")
 
     for attempt in range(max_stream_retries + 1):
         if agent._interrupt_requested:

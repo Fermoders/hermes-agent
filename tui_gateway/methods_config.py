@@ -190,6 +190,27 @@ def _(rid, params: dict) -> dict:
         return _ok(rid, {"cwd": cwd, "branch": _git_branch_for_cwd(cwd)})
     if key == "full":
         return _ok(rid, {"config": _load_cfg()})
+    if key == "provider_runtime":
+        provider = str(params.get("provider") or "").strip()
+        if not provider:
+            return _err(rid, 5014, "provider required")
+        try:
+            from hermes_cli.runtime_provider import resolve_runtime_provider
+
+            runtime = resolve_runtime_provider(requested=provider)
+            return _ok(
+                rid,
+                {
+                    "provider": provider,
+                    "base_url": str(runtime.get("base_url") or ""),
+                    # The renderer needs the key only to authenticate directly
+                    # to the configured provider's user-usage endpoint. Keep
+                    # this narrow method out of the generic full-config path.
+                    "api_key": str(runtime.get("api_key") or ""),
+                },
+            )
+        except Exception as e:
+            return _err(rid, 5015, str(e))
     if key == "prompt":
         return _ok(rid, {"prompt": _load_cfg().get("custom_prompt", "")})
     if key == "skin":

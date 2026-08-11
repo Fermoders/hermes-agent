@@ -231,6 +231,32 @@ class TestApplyUpdate:
             '    return result + 1'
         )
 
+    def test_already_applied_update_does_not_write(self):
+        patch = """\
+*** Begin Patch
+*** Update File: sample.py
+-old meaningful value
++new meaningful value
+*** End Patch"""
+        operations, err = parse_v4a_patch(patch)
+        assert err is None
+
+        class FakeFileOps:
+            writes = 0
+
+            def read_file_raw(self, path):
+                return SimpleNamespace(content="new meaningful value\n", error=None)
+
+            def write_file(self, path, content, pre_content=None):
+                self.writes += 1
+                return SimpleNamespace(error=None)
+
+        file_ops = FakeFileOps()
+        result = apply_v4a_operations(operations, file_ops)
+        assert result.success is True
+        assert result.no_change is True
+        assert file_ops.writes == 0
+
 
 class TestAdditionOnlyHunks:
     """Regression tests for #3081 — addition-only hunks were silently dropped."""
@@ -434,6 +460,25 @@ class TestValidationPhase:
         result = apply_v4a_operations(ops, FakeFileOps())
         assert result.success is False
         assert "hunk 2" in result.error.lower()
+
+    def test_context_only_patch_is_rejected_without_writing(self):
+        patch = """\
+*** Begin Patch
+*** Update File: a.py
+@@ def good @@
+ def good():
+     return 1
+*** End Patch"""
+        ops, err = parse_v4a_patch(patch)
+        assert err is None
+
+        class FakeFileOps:
+            def read_file_raw(self, path):
+                return SimpleNamespace(content="def good():\n    return 1\n", error=None)
+
+        result = apply_v4a_operations(ops, FakeFileOps())
+        assert result.success is False
+        assert "only context lines" in result.error
 
 
 class TestApplyDelete:

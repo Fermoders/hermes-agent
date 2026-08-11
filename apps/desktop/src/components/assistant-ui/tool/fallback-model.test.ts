@@ -164,6 +164,20 @@ describe('buildToolView file edit diffs', () => {
     expect(view.inlineDiff).toBe(patchDiff)
   })
 
+  it('treats a landed diff as success when the transport leaves a stale isError flag', () => {
+    const view = buildToolView(
+      part({
+        args: { mode: 'patch' },
+        isError: true,
+        result: '[patch] patch in  (2,402 chars result)',
+        toolName: 'patch'
+      }),
+      patchDiff
+    )
+
+    expect(view.status).toBe('success')
+  })
+
   it('shows path subtitle instead of patch args JSON while pending', () => {
     const view = buildToolView(
       part({
@@ -391,7 +405,7 @@ describe('clampForDisplay', () => {
 
     expect(clamped.length).toBeLessThan(oversized.length)
     expect(clamped.startsWith('x'.repeat(MAX_TOOL_RENDER_CHARS))).toBe(true)
-    expect(clamped).toContain('5,000 more characters truncated')
+    expect(clamped).toMatch(/5(?:,|\u00a0)000 more characters truncated/)
     expect(clamped).toContain('Copy')
   })
 })

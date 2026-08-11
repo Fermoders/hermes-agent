@@ -139,4 +139,7 @@ class TestV4AAlreadyApplied:
         )
         r = _patch_tool(mode="patch", patch=patch_content, task_id="t-v4a")
         assert r["success"] is True, r
+        assert r.get("no_change") is True
+        assert "already applied" in r.get("note", "").lower()
+        assert r.get("files_modified", []) == []
         assert f.read_text() == "STATUS = 'migrated_to_v2_schema'\n"

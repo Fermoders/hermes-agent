@@ -5,6 +5,7 @@ import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
 
+import { useGatewayRequest } from '@/app/gateway/hooks/use-gateway-request'
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
@@ -133,6 +134,7 @@ import {
 } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
+import { AiLimitsPanel } from './ai-limits-panel'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarFilterMenu } from './filter-menu'
 import { SidebarLoadMoreRow } from './load-more-row'
@@ -292,6 +294,7 @@ export function ChatSidebar({
   onManageCronJob,
   onTriggerCronJob
 }: ChatSidebarProps) {
+  const { requestGateway } = useGatewayRequest()
   const { t } = useI18n()
   const s = t.sidebar
   const { pathname } = useLocation()
@@ -1758,6 +1761,8 @@ export function ChatSidebar({
         )}
 
         {!showSessionSections && <SidebarBlankState onNewProject={openProjectCreate} />}
+
+        <AiLimitsPanel requestGateway={requestGateway} />
 
         <div className="shrink-0 px-0.5 pb-1 pt-0.5">
           <ProfileRail />

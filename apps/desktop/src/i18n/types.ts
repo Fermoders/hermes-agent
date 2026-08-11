@@ -1553,6 +1553,7 @@ export interface Translations {
     results: string
     pinned: string
     sessions: string
+    aiLimits: string
     cronJobs: string
     groupAriaGrouped: string
     groupAriaUngrouped: string

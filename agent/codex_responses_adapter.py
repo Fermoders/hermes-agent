@@ -334,6 +334,22 @@ def _derive_responses_function_call_id(
     return f"fc_{digest}"
 
 
+def _qualified_responses_tool_name(item: Any) -> str:
+    """Restore a namespaced Responses tool call to Hermes' registry name.
+
+    Responses namespace tools are declared as ``image_gen.imagegen`` inside
+    Hermes, but providers return the call split across ``name="imagegen"`` and
+    ``namespace="image_gen"``.  Dropping the namespace makes the executor look
+    up a nonexistent bare ``imagegen`` tool.  Already-qualified names and calls
+    without a namespace pass through unchanged.
+    """
+    name = str(getattr(item, "name", "") or "").strip()
+    namespace = str(getattr(item, "namespace", "") or "").strip()
+    if namespace and name and not name.startswith(f"{namespace}."):
+        return f"{namespace}.{name}"
+    return name
+
+
 # ---------------------------------------------------------------------------
 # Schema conversion
 # ---------------------------------------------------------------------------
@@ -1454,7 +1470,7 @@ def _normalize_codex_response(
         elif item_type == "function_call":
             if item_status in {"queued", "in_progress", "incomplete"}:
                 continue
-            fn_name = getattr(item, "name", "") or ""
+            fn_name = _qualified_responses_tool_name(item)
             arguments = getattr(item, "arguments", "{}")
             if not isinstance(arguments, str):
                 arguments = json.dumps(arguments, ensure_ascii=False)
@@ -1475,7 +1491,7 @@ def _normalize_codex_response(
                 function=SimpleNamespace(name=fn_name, arguments=arguments),
             ))
         elif item_type == "custom_tool_call":
-            fn_name = getattr(item, "name", "") or ""
+            fn_name = _qualified_responses_tool_name(item)
             arguments = getattr(item, "input", "{}")
             if not isinstance(arguments, str):
                 arguments = json.dumps(arguments, ensure_ascii=False)
