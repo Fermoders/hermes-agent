@@ -2,11 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { useI18n } from '@/i18n'
 
-const REMOTE_PROVIDER = 'test'
-
-interface ProviderRuntime {
-  api_key?: string
+interface AiLimitsGatewayResult {
   base_url?: string
+  limits?: RemoteLimitsPayload
+  usage?: RemoteUsage
 }
 
 interface TokenTotals {
@@ -193,48 +192,16 @@ export function AiLimitsPanel({ requestGateway }: AiLimitsPanelProps) {
 
   useEffect(() => {
     let disposed = false
-    let controller: AbortController | null = null
     let tokenSamples: TokenSample[] = []
 
     const refresh = async () => {
-      controller?.abort()
-      controller = new AbortController()
-
-      const remotePromise = requestGateway<ProviderRuntime>('config.get', {
-        key: 'provider_runtime',
-        provider: REMOTE_PROVIDER
-      }).then(async runtime => {
-        const baseUrl = String(runtime.base_url || '').replace(/\/v1\/?$/, '')
-        const apiKey = String(runtime.api_key || '')
-
-        if (!baseUrl || !apiKey) {
-          throw new Error('provider credentials unavailable')
+      const remotePromise = requestGateway<AiLimitsGatewayResult>('ai_limits.get').then(result => {
+        if (!result.limits || !result.usage) {
+          throw new Error('AI limits are unavailable')
         }
-
-        const headers = { Authorization: `Bearer ${apiKey}` }
-        const [limitsResponse, usageResponse] = await Promise.all([
-          fetch(`${baseUrl}/v0/user/ai-limits`, {
-            cache: 'no-store',
-            headers,
-            signal: controller?.signal
-          }),
-          fetch(`${baseUrl}/v0/user/usage`, {
-            cache: 'no-store',
-            headers,
-            signal: controller?.signal
-          })
-        ])
-
-        if (!limitsResponse.ok) {
-          throw new Error(`AI limits endpoint returned ${limitsResponse.status}`)
-        }
-        if (!usageResponse.ok) {
-          throw new Error(`usage endpoint returned ${usageResponse.status}`)
-        }
-
         return {
-          limits: mapRemoteLimits((await limitsResponse.json()) as RemoteLimitsPayload),
-          usage: (await usageResponse.json()) as RemoteUsage
+          limits: mapRemoteLimits(result.limits),
+          usage: result.usage
         }
       })
 
@@ -277,7 +244,6 @@ export function AiLimitsPanel({ requestGateway }: AiLimitsPanelProps) {
 
     return () => {
       disposed = true
-      controller?.abort()
       window.clearInterval(timer)
     }
   }, [requestGateway])

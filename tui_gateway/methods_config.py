@@ -16,6 +16,44 @@ method = _registry.method
 _profile_scoped = _registry.profile_scoped
 
 
+@method("ai_limits.get")
+def _(rid, _params: dict) -> dict:
+    """Fetch CLIProxyAPI limits without depending on a provider name."""
+    import httpx
+
+    from hermes_cli.runtime_provider import iter_ai_limits_provider_runtimes
+
+    for runtime in iter_ai_limits_provider_runtimes():
+        base_url = runtime["base_url"]
+        endpoint_root = base_url.rstrip("/")
+        if endpoint_root.endswith("/v1"):
+            endpoint_root = endpoint_root[:-3]
+        headers = {"Authorization": f"Bearer {runtime['api_key']}"}
+        try:
+            with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+                limits_response = client.get(
+                    f"{endpoint_root}/v0/user/ai-limits",
+                    headers=headers,
+                )
+                limits_response.raise_for_status()
+                usage_response = client.get(
+                    f"{endpoint_root}/v0/user/usage",
+                    headers=headers,
+                )
+                usage_response.raise_for_status()
+            return _ok(
+                rid,
+                {
+                    "base_url": base_url,
+                    "limits": limits_response.json(),
+                    "usage": usage_response.json(),
+                },
+            )
+        except (httpx.HTTPError, ValueError, TypeError):
+            continue
+    return _err(rid, 4004, "No configured provider exposes AI limits")
+
+
 @method("projects.discover_repos")
 def _(rid, params: dict) -> dict:
     """Repos for the desktop overview: scanned-from-disk (cached) ∪ session-derived."""
