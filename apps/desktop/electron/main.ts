@@ -291,6 +291,7 @@ import {
   encryptDesktopSecret as encryptDesktopSecretStrict,
   homeRelativeAttachmentCandidates,
   readFileDataUrlForIpc,
+  readFilePreviewDataUrlForIpc,
   resolvePersistedRemoteToken,
   resolveReadableFileForIpc,
   resolveRemoteTokenPlainText,
@@ -17837,7 +17838,7 @@ ipcMain.handle('hermes:readFileDataUrl', async (_event, filePath) => {
   // Windows host bridge them to a UNC/drive form, same as directory reads.
   const bridgedPath = resolveIpcFileReadPath(filePath)
 
-  return readFileDataUrlForIpc(bridgedPath, {
+  return readFilePreviewDataUrlForIpc(bridgedPath, {
     maxBytes: dataUrlReadMaxBytesFromMb(dataUrlReadMaxMb),
     mimeType: mimeTypeForPath(resolveRequestedPathForIpc(bridgedPath, { purpose: 'File preview' })),
     purpose: 'File preview'

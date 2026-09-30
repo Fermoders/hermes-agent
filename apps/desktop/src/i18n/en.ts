@@ -3554,6 +3554,7 @@ export const en: Translations = {
   },
 
   sidebar: {
+    aiLimits: 'AI limits',
     filter: {
       grouping: 'Grouping',
       ordering: 'Ordering',

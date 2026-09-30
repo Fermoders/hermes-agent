@@ -953,6 +953,11 @@ export interface VerificationEvidenceRow {
   output_summary?: string | null
   [key: string]: unknown
 }
+export interface AiLimitsResult {
+  base_url: string
+  limits: Record<string, unknown>
+  usage: Record<string, unknown>
+}
 export interface ConnectionOperationParams {
   profile?: string | null
   owner: SessionOwner | AccountOwner
@@ -4872,6 +4877,8 @@ export type ConnectorErrorReason = 'INVALID_PARAMS' | 'NOT_OWNER' | 'UNSUPPORTED
 export interface RpcMethods {
   /** Registry-wide background process summary for ``/agents``. */
   'agents.list': { params: AgentsListParams; result: AgentsListResult }
+  /** Probe configured provider endpoints for AI limits and usage without exposing credentials. */
+  'ai_limits.get': { params: ProfileParams; result: AiLimitsResult }
   /** Replay the approvals still waiting on this session (reconnect / polling). */
   'approval.pending': { params: ApprovalPendingParams; result: ApprovalPendingResult }
   /** Tell the backend the card is on screen, so its timeout clock starts. */
@@ -5376,6 +5383,7 @@ export interface RpcMethods {
 export type RpcMethod = keyof RpcMethods
 export const RPC_METHODS = [
   'agents.list',
+  'ai_limits.get',
   'approval.pending',
   'approval.received',
   'approval.respond',

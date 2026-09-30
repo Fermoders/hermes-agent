@@ -595,6 +595,34 @@ async function readFileDataUrlForIpc(
   return `data:${options.mimeType};base64,${data.toString('base64')}`
 }
 
+async function readFilePreviewDataUrlForIpc(
+  filePath,
+  options: {
+    purpose?: string
+    baseDir?: fs.PathOrFileDescriptor
+    fs?: typeof fs
+    blockSensitive?: boolean
+    maxBytes?: number
+    mimeType: string
+  }
+): Promise<{ ok: true; dataUrl: string } | { ok: false; code: 'ENOENT' | 'ENOTDIR'; error: string }> {
+  try {
+    return { ok: true, dataUrl: await readFileDataUrlForIpc(filePath, options) }
+  } catch (error) {
+    const code = String(error && typeof error === 'object' ? (error as NodeJS.ErrnoException).code || '' : '')
+
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return {
+        ok: false,
+        code,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
+
+    throw error
+  }
+}
+
 export {
   assertExistingPathForOpen,
   ATTACHMENT_UPLOAD_DEFAULT_MAX_BYTES,
@@ -608,6 +636,7 @@ export {
   encryptDesktopSecret,
   homeRelativeAttachmentCandidates,
   readFileDataUrlForIpc,
+  readFilePreviewDataUrlForIpc,
   rejectUnsafePathSyntax,
   resolveDirectoryForIpc,
   resolvePersistedRemoteToken,

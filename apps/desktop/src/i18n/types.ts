@@ -2985,6 +2985,7 @@ export interface Translations {
   }
 
   sidebar: {
+    aiLimits: string
     filter: {
       grouping: string
       ordering: string

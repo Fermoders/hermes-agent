@@ -25,6 +25,24 @@
       }
     },
     {
+      "name": "ai_limits.get",
+      "summary": "Probe configured provider endpoints for AI limits and usage without exposing credentials.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/ProfileParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/AiLimitsResult"
+        }
+      }
+    },
+    {
       "name": "approval.pending",
       "summary": "Replay the approvals still waiting on this session (reconnect / polling).",
       "params": [
@@ -4906,6 +4924,32 @@
           }
         },
         "title": "AgentsListResult",
+        "type": "object"
+      },
+      "AiLimitsResult": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "title": "Limits",
+            "type": "object"
+          },
+          "usage": {
+            "additionalProperties": true,
+            "title": "Usage",
+            "type": "object"
+          }
+        },
+        "required": [
+          "base_url",
+          "limits",
+          "usage"
+        ],
+        "title": "AiLimitsResult",
         "type": "object"
       },
       "ApprovalCancelledPayload": {

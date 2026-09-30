@@ -1137,3 +1137,34 @@ def resolve_runtime_with_fallback(config: Optional[Dict[str, Any]], *, requested
                            primary_failure_wording(primary_exc)[0], primary_exc, provider, model)
             return runtime, entry
         raise primary_exc
+
+
+def iter_ai_limits_provider_runtimes() -> list[Dict[str, Any]]:
+    """Return custom provider endpoints that may expose CLIProxyAPI limits.
+
+    Discovery is based on endpoint capability rather than the user-defined
+    provider name. The gateway probes these runtimes and uses the first one
+    that implements both limits endpoints.
+    """
+    try:
+        providers = get_compatible_custom_providers(load_config())
+    except Exception:
+        return []
+
+    runtimes: list[Dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for entry in providers:
+        if not isinstance(entry, dict):
+            continue
+        base_url = str(entry.get("base_url", "") or "").strip().rstrip("/")
+        if not base_url or base_url.lower() in seen_urls:
+            continue
+        api_key = str(entry.get("api_key", "") or "").strip()
+        key_env = str(entry.get("key_env", "") or "").strip()
+        if not api_key and key_env:
+            api_key = get_secret_str(key_env, "").strip()
+        if not api_key:
+            continue
+        seen_urls.add(base_url.lower())
+        runtimes.append({"base_url": base_url, "api_key": api_key})
+    return runtimes

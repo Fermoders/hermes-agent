@@ -701,7 +701,7 @@ function toolErrorText(part: ToolPart, result: Record<string, unknown>): string 
   return ''
 }
 
-function toolStatus(part: ToolPart, resultRecord: Record<string, unknown>): ToolStatus {
+function toolStatus(part: ToolPart, resultRecord: Record<string, unknown>, inlineDiff: string): ToolStatus {
   if (part.result === undefined && part.completedAt === undefined) {
     return 'running'
   }
@@ -715,6 +715,20 @@ function toolStatus(part: ToolPart, resultRecord: Record<string, unknown>): Tool
   // return `{ success: true }` when the batch landed; a stale outer `isError`
   // envelope must not paint a real save amber.
   if (resultRecord.success === true || resultRecord.ok === true) {
+    return 'success'
+  }
+
+  // A non-empty diff is proof that a file edit landed. Some transports leave
+  // a stale outer `isError` flag on patch results even though the backend
+  // returned and rendered the applied diff; do not paint that successful edit
+  // as a destructive error. Explicit structured failures still win.
+  if (
+    isFileEditTool(part.toolName) &&
+    inlineDiff.trim() &&
+    resultRecord.success !== false &&
+    resultRecord.ok !== false &&
+    !firstStringField(resultRecord, ['error'])
+  ) {
     return 'success'
   }
 
@@ -1482,7 +1496,7 @@ export function toolPreviewOutcome(part: ToolPart): { previewTarget: string; sta
 
   return {
     previewTarget: toolPreviewTarget(part.toolName, parseMaybeObject(part.args), resultRecord),
-    status: toolStatus(part, resultRecord)
+    status: toolStatus(part, resultRecord, firstStringField(resultRecord, ['diff']))
   }
 }
 
@@ -1490,7 +1504,7 @@ export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
   const argsRecord = parseMaybeObject(part.args)
   const resultRecord = toolResultRecord(part)
   const meta = toolMeta(part.toolName)
-  const status = toolStatus(part, resultRecord)
+  const status = toolStatus(part, resultRecord, inlineDiff)
   // Skip residual error-heuristic text once status is success (stale isError
   // envelope over a landed memory write would otherwise foul the subtitle).
   const error = status === 'success' ? '' : toolErrorText(part, resultRecord)

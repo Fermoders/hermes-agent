@@ -9,6 +9,9 @@ forwarders. Symbols tests patch on ``run_agent`` (``cleanup_vm`` /
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import contextlib
 import contextvars
 import json
@@ -25,7 +28,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from hermes_cli.timeouts import get_provider_request_timeout, get_provider_stale_timeout
-from hermes_constants import PARTIAL_STREAM_STUB_ID, FINISH_REASON_LENGTH
+from hermes_constants import PARTIAL_STREAM_STUB_ID, FINISH_REASON_LENGTH, get_hermes_home
 from agent.error_classifier import (
     FailoverReason, PROVIDER_STREAM_EMPTY_FRAME_ERROR_CODE, PROVIDER_STREAM_NON_JSON_ERROR_CODE,
     _extract_status_code)
@@ -57,6 +60,113 @@ from utils import base_url_host_matches, base_url_hostname, env_float, env_int
 
 logger = logging.getLogger(__name__)
 _OPENROUTER_PROVIDER_SORT_VALUES = {"throughput", "latency", "price"}
+_GENERATED_IMAGE_MIME_SUFFIX = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+_MAX_GENERATED_IMAGE_BYTES = 25 * 1024 * 1024
+
+
+def _stream_chunk_has_meaningful_progress(chunk: Any) -> bool:
+    """Return whether a chat-completions chunk advances the model response."""
+    choices = getattr(chunk, "choices", None) or []
+    for choice in choices:
+        if getattr(choice, "finish_reason", None):
+            return True
+        delta = getattr(choice, "delta", None)
+        if delta is None:
+            continue
+        if getattr(delta, "content", None):
+            return True
+        if any(getattr(delta, field, None) for field in (
+            "reasoning_content", "reasoning", "reasoning_details", "refusal")):
+            return True
+        if getattr(delta, "tool_calls", None) or getattr(delta, "images", None):
+            return True
+        extra = getattr(delta, "model_extra", None)
+        if isinstance(extra, dict) and (extra.get("images") or extra.get("tool_calls")):
+            return True
+    return False
+
+
+def _anthropic_event_has_meaningful_progress(event: Any) -> bool:
+    """Return whether an Anthropic event contains output or a terminal state."""
+    event_type = getattr(event, "type", None)
+    if event_type == "content_block_start":
+        block = getattr(event, "content_block", None)
+        return getattr(block, "type", None) == "tool_use"
+    if event_type == "content_block_delta":
+        delta = getattr(event, "delta", None)
+        delta_type = getattr(delta, "type", None)
+        if delta_type == "text_delta":
+            return bool(getattr(delta, "text", None))
+        if delta_type == "thinking_delta":
+            return bool(getattr(delta, "thinking", None))
+        if delta_type in {"input_json_delta", "signature_delta", "citations_delta"}:
+            return True
+        return False
+    if event_type == "message_delta":
+        delta = getattr(event, "delta", None)
+        return bool(getattr(delta, "stop_reason", None))
+    return event_type in {"message_stop", "error"}
+
+
+def _persist_generated_stream_images(delta: Any, seen: set[str]) -> list[str]:
+    """Persist OpenAI-compatible ``delta.images`` data URLs for MEDIA delivery."""
+    images = getattr(delta, "images", None)
+    if images is None:
+        extra = getattr(delta, "model_extra", None)
+        if isinstance(extra, dict):
+            images = extra.get("images")
+    if not isinstance(images, list):
+        return []
+
+    media_tags: list[str] = []
+    for image in images:
+        if hasattr(image, "model_dump"):
+            image = image.model_dump(exclude_none=True)
+        if not isinstance(image, dict):
+            continue
+        image_url = image.get("image_url")
+        if hasattr(image_url, "model_dump"):
+            image_url = image_url.model_dump(exclude_none=True)
+        url = image_url.get("url") if isinstance(image_url, dict) else None
+        if not isinstance(url, str) or not url.startswith("data:image/"):
+            continue
+        try:
+            header, encoded = url.split(",", 1)
+            mime = header[5:].split(";", 1)[0].lower()
+            if ";base64" not in header.lower() or mime not in _GENERATED_IMAGE_MIME_SUFFIX:
+                continue
+            if len(encoded) > ((_MAX_GENERATED_IMAGE_BYTES + 2) // 3) * 4:
+                logger.warning("Ignoring oversized generated image payload (%d base64 chars)", len(encoded))
+                continue
+            digest = hashlib.sha256(encoded.encode("ascii")).hexdigest()
+            if digest in seen:
+                continue
+            raw = base64.b64decode(encoded, validate=True)
+            if not raw or len(raw) > _MAX_GENERATED_IMAGE_BYTES:
+                continue
+        except (ValueError, UnicodeEncodeError, binascii.Error):
+            logger.warning("Ignoring malformed generated image data URL from provider")
+            continue
+
+        output_dir = get_hermes_home() / "media" / "generated"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        suffix = _GENERATED_IMAGE_MIME_SUFFIX[mime]
+        output_path = output_dir / f"generated_{time.strftime('%Y%m%d_%H%M%S')}_{digest[:12]}{suffix}"
+        try:
+            output_path.write_bytes(raw)
+        except OSError as exc:
+            logger.warning("Could not persist provider-generated image: %s", exc)
+            continue
+        seen.add(digest)
+        media_tags.append(f"MEDIA:{output_path.resolve()}")
+    return media_tags
+
+
 _PROVIDER_STREAM_ERROR_FINISH_REASONS = {"error", "error_finish"}
 _PROVIDER_STREAM_SSE_FIELDS = {"event", "data", "id", "retry"}
 _PROVIDER_STREAM_ERROR_TEXT_LIMIT = 4096
@@ -3004,8 +3114,11 @@ class _StreamingCall(StreamingWaitMonitor):
 
     def _count_chunk(self, diag, chunk) -> None:
         """Stamp liveness for a real chunk; diagnostics are best-effort."""
-        self.last_chunk_time["t"] = time.time()
-        self.agent._touch_activity("receiving stream response")
+        meaningful = (_stream_chunk_has_meaningful_progress(chunk) if hasattr(chunk, "choices")
+                      else _anthropic_event_has_meaningful_progress(chunk))
+        if meaningful:
+            self.last_chunk_time["t"] = time.time()
+            self.agent._touch_activity("receiving stream response")
         with contextlib.suppress(Exception):
             diag["chunks"] = int(diag.get("chunks", 0)) + 1
             if diag.get("first_chunk_at") is None:
@@ -3129,9 +3242,9 @@ class _StreamingCall(StreamingWaitMonitor):
             return False
         if not self._writer_still_current("Streaming"):
             return False
-        # Stamp BEFORE Relay processes the chunk so the watchdog can't cancel
-        # a live stream mid-interceptor.
-        self.last_chunk_time["t"] = time.time()
+        # Empty heartbeat chunks must not keep a stalled model alive.
+        if _stream_chunk_has_meaningful_progress(chunk):
+            self.last_chunk_time["t"] = time.time()
         return True
 
     def _writer_still_current(self, label: str) -> bool:
@@ -3149,6 +3262,7 @@ class _StreamingCall(StreamingWaitMonitor):
         import httpx as _httpx
         base_timeout, read_timeout, conn_cap = self._stream_timeouts()
         content_parts: list = []
+        generated_image_digests: set[str] = set()
         reasoning_parts: list = []
         # Live-display accumulator for detail-derived reasoning text: de-gluing must
         # compare against what the display actually received, not ``reasoning_parts``
@@ -3293,6 +3407,11 @@ class _StreamingCall(StreamingWaitMonitor):
                     continue
                 else:
                     self._emit_text(delta_content)
+
+            for media_tag in _persist_generated_stream_images(delta, generated_image_digests):
+                media_delta = f"\n{media_tag}\n"
+                content_parts.append(media_delta)
+                self._emit_text(media_delta)
 
             delta_tool_calls = getattr(delta, "tool_calls", None)
             if delta_tool_calls:

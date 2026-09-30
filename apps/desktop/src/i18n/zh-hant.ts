@@ -2690,6 +2690,7 @@ export const zhHant = defineLocale({
   },
 
   sidebar: {
+    aiLimits: 'AI 使用限額',
     profileRail: '設定檔列',
     markAllRead: '全部標示為已讀',
     filter: {

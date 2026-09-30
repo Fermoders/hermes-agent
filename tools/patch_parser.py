@@ -316,7 +316,8 @@ def apply_v4a_operations(operations: List[PatchOperation], file_ops: Any) -> Pat
             errors.append(f"{prefix} {op.file_path}: {payload}")
             continue
         is_move = op.operation is OperationType.MOVE
-        files[bucket].append(f"{op.file_path} -> {op.new_path}" if is_move else op.file_path)
+        if payload.strip():
+            files[bucket].append(f"{op.file_path} -> {op.new_path}" if is_move else op.file_path)
         all_diffs.append(payload)
         if lsp:
             lsp_blocks.append(lsp)
@@ -325,6 +326,8 @@ def apply_v4a_operations(operations: List[PatchOperation], file_ops: Any) -> Pat
     # Each LSP block carries its own <diagnostics file="..."> header; joining keeps attribution.
     return PatchResult(
         success=not errors,
+        no_change=not errors and not any(all_diffs),
+        note="Patch was already applied; no files were modified." if not errors and not any(all_diffs) else None,
         error=("Apply phase failed (state may be inconsistent — run `git diff` to assess):\n"
                + _bullets(errors)) if errors else None,
         diff='\n'.join(all_diffs),
@@ -437,6 +440,8 @@ def _apply_update(op: PatchOperation, file_ops: Any) -> ApplyResult:
                 continue
             hint = _no_match_hint(error, search_pattern, new_content)
             return _fail(f"Could not apply hunk: {error}" + hint)
+    if new_content == current_content:
+        return True, "", None, None
     # Pass pre_content to skip a redundant re-read inside write_file when supported.
     extra = {"pre_content": current_content} if _write_file_accepts_pre_content(file_ops) else {}
     write_result = file_ops.write_file(op.file_path, new_content, **extra)

@@ -994,3 +994,46 @@ def test_codex_preflight_passes_text_verbosity_through():
     assert _preflight_codex_api_kwargs(dict(kwargs))["text"] == {"verbosity": "low"}
     # An empty block is dropped, like the other optional fields, instead of rejected.
     assert "text" not in _preflight_codex_api_kwargs({**kwargs, "text": {}})
+
+def test_normalize_codex_response_restores_namespaced_tool_name():
+    response = SimpleNamespace(
+        status="completed",
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                status="completed",
+                id="fc_image_1",
+                call_id="call_image_1",
+                name="imagegen",
+                namespace="image_gen",
+                arguments='{"prompt":"A realistic red rose"}',
+            )
+        ],
+    )
+
+    assistant_message, finish_reason = _normalize_codex_response(response)
+
+    assert finish_reason == "tool_calls"
+    assert len(assistant_message.tool_calls) == 1
+    assert assistant_message.tool_calls[0].function.name == "image_gen.imagegen"
+
+
+def test_normalize_codex_response_does_not_duplicate_existing_namespace():
+    response = SimpleNamespace(
+        status="completed",
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                status="completed",
+                id="fc_image_2",
+                call_id="call_image_2",
+                name="image_gen.imagegen",
+                namespace="image_gen",
+                arguments="{}",
+            )
+        ],
+    )
+
+    assistant_message, _ = _normalize_codex_response(response)
+
+    assert assistant_message.tool_calls[0].function.name == "image_gen.imagegen"

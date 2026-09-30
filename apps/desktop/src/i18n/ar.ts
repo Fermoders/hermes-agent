@@ -2100,6 +2100,7 @@ export const ar = defineLocale({
     missingBody: 'لم يعد هذا الناتج موجودًا في السجل المحلي.'
   },
   sidebar: {
+    aiLimits: 'حدود استخدام الذكاء الاصطناعي',
     profileRail: 'شريط الملفات الشخصية',
     markAllRead: 'وضع علامة مقروء على الكل',
     filter: {

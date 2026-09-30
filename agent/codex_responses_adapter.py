@@ -1043,7 +1043,10 @@ def _format_responses_error(error_obj: Any, response_status: str) -> str:
 
 def _response_tool_call(item: Any, item_type: str, index: int) -> SimpleNamespace:
     """Build a chat-style tool_call from a ``function_call``/``custom_tool_call`` item."""
-    fn_name = getattr(item, "name", "") or ""
+    fn_name = str(getattr(item, "name", "") or "").strip()
+    namespace = str(getattr(item, "namespace", "") or "").strip()
+    if namespace and fn_name and not fn_name.startswith(f"{namespace}."):
+        fn_name = f"{namespace}.{fn_name}"
     arguments = getattr(item, "arguments" if item_type == "function_call" else "input", "{}")
     if not isinstance(arguments, str):
         arguments = json.dumps(arguments, ensure_ascii=False)

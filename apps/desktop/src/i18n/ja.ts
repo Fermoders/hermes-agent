@@ -2478,6 +2478,7 @@ export const ja = defineLocale({
   },
 
   sidebar: {
+    aiLimits: 'AI 利用上限',
     profileRail: 'プロファイルバー',
     markAllRead: 'すべて既読にする',
     filter: {

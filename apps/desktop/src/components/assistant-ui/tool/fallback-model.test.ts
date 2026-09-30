@@ -279,6 +279,20 @@ describe('buildToolView file edit diffs', () => {
     expect(view.inlineDiff).toBe(patchDiff)
   })
 
+  it('treats a landed diff as success when the transport leaves a stale isError flag', () => {
+    const view = buildToolView(
+      part({
+        args: { mode: 'patch' },
+        isError: true,
+        result: '[patch] patch in  (2,402 chars result)',
+        toolName: 'patch'
+      }),
+      patchDiff
+    )
+
+    expect(view.status).toBe('success')
+  })
+
   it('shows path subtitle instead of patch args JSON while pending', () => {
     const view = buildToolView(
       part({

@@ -1013,10 +1013,13 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
                 # mismatch is visible instead of silently landing elsewhere.
                 _resolved_modified = [_path_to_entry.get(_p) or _path_to_resolved.get(_p) or _p
                                       for _p in _paths_to_check]
+                if result_dict.get("no_change"):
+                    _resolved_modified = []
                 result_dict["files_modified"] = _resolved_modified
                 if len(_resolved_modified) == 1:
                     result_dict["resolved_path"] = _resolved_modified[0]
-                _note_edited(task_id, _paths_to_check, _path_to_resolved, session_id)
+                if not result_dict.get("no_change"):
+                    _note_edited(task_id, _paths_to_check, _path_to_resolved, session_id)
                 # Clear failure counters so a future miss starts a fresh count.
                 _reset_patch_failures(task_id, [_r for _r in _path_to_resolved.values() if _r])
         # old_string-not-found hint. Failure escalation is tracked for replace

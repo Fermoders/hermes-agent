@@ -694,3 +694,12 @@ class VerificationStatusResult(Result):
 
 method("verification.status", params=VerificationStatusParams, result=VerificationStatusResult,
        doc="Best known verification evidence for a cwd/session; read-only, never runs checks.")
+
+
+class AiLimitsResult(Result):
+    base_url: str
+    limits: dict[str, JsonValue]
+    usage: dict[str, JsonValue]
+
+method("ai_limits.get", params=ProfileParams, result=AiLimitsResult,
+       doc="Probe configured provider endpoints for AI limits and usage without exposing credentials.")

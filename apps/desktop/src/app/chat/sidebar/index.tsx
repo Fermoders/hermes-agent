@@ -156,6 +156,8 @@ import { buildGatewaySessionGroups, scopeGatewaySessionGroups, useGatewaySession
 import { SidebarLoadMoreRow } from './load-more-row'
 import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds } from './order'
 import { filterSessionsByProfileScope } from './profile-scope'
+import { useGatewayRequest } from '@/app/gateway/hooks/use-gateway-request'
+import { AiLimitsPanel } from './ai-limits-panel'
 import { ProfileRail } from './profile-switcher'
 import { ProjectDialog } from './project-dialog'
 import { filterToSessionBearingProjects, resolveLiveProjectFilter } from './project-filter'
@@ -406,6 +408,7 @@ export function ChatSidebar({
   onManageCronJob,
   onTriggerCronJob
 }: ChatSidebarProps) {
+  const { requestGateway } = useGatewayRequest()
   const { t } = useI18n()
   const s = t.sidebar
   const { pathname } = useLocation()
@@ -2078,6 +2081,7 @@ export function ChatSidebar({
         )}
 
         {!showSessionSections && <SidebarBlankState onNewProject={openProjectCreate} />}
+        <AiLimitsPanel requestGateway={requestGateway} />
 
         {/* Off, the statusbar's profile dropdown (beside the gateway switcher)
             takes over — the rail is a duplicate door for bot-only setups. */}

@@ -435,6 +435,29 @@ class TestValidationPhase:
         assert result.success is False
         assert "hunk 2" in result.error.lower()
 
+    def test_context_only_patch_is_rejected_without_writing(self):
+        patch = """\
+*** Begin Patch
+*** Update File: a.py
+@@ def good @@
+ def good():
+     return 1
+*** End Patch"""
+        ops, err = parse_v4a_patch(patch)
+        assert err is None
+
+        class FakeFileOps:
+            def read_file_raw(self, path):
+                return SimpleNamespace(content="def good():\n    return 1\n", error=None)
+
+        result = apply_v4a_operations(ops, FakeFileOps())
+        assert result.success is False
+        assert "only context lines" in result.error
+
+
+class TestApplyDelete:
+    """Tests for _apply_delete producing a real unified diff."""
+
     def test_add_onto_existing_file_fails_and_preserves_contents(self):
         """An Add targeting a path that already exists must fail validation and
         leave the original bytes untouched (no silent overwrite)."""

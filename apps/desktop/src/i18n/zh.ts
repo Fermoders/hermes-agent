@@ -3330,6 +3330,7 @@ export const zh = defineLocale({
   },
 
   sidebar: {
+    aiLimits: 'AI 使用限额',
     filter: {
       grouping: '分组',
       ordering: '排序',
