@@ -4,6 +4,7 @@ import { defineLocale, type TranslationOverrides } from './define-locale'
 import { introFr } from './intro-fr'
 
 export const frOverrides = {
+  tokenStats: { title: 'Consommation de tokens', read: 'Lecture', cacheRead: 'Lecture du cache', cacheWrite: 'Écriture du cache', output: 'Sortie', rate: 'tok/s', agents: 'Appels agents', partial: 'Sans données :', task: 'Tâche', session: 'Session', response: 'Réponse', unavailable: 'Consommation indisponible', newTask: 'Nouvelle tâche', rateHint: 'Sortie / secondes API (premier token et agents parallèles inclus ; attente des outils exclue).' },
   sharedMetrics: {
     consentTitle: 'Aider à améliorer Hermes ?',
     consentBody:

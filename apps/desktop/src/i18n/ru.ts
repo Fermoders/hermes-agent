@@ -24,6 +24,7 @@ const RU_NOUN = (count: number | string, one: string, few: string, many: string)
 }
 
 export const ru = defineLocale({
+  tokenStats: { title: 'Расход токенов', read: 'Чтение', cacheRead: 'Чтение кеша', cacheWrite: 'Запись кеша', output: 'Генерация', rate: 'ток/с', agents: 'Вызовы агентов', partial: 'Без данных:', task: 'Задача', session: 'Сессия', response: 'Ответ', unavailable: 'Расход токенов недоступен', newTask: 'Начать новую задачу', rateHint: 'Генерация / секунды API (включая ожидание первого токена и параллельных агентов, без ожидания инструментов).' },
   sharedMetrics: {
     consentTitle: 'Помочь улучшить Hermes?',
     consentBody:

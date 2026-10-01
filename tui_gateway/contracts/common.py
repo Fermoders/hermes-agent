@@ -16,6 +16,27 @@ class OpenModel(Result):
     model_config = Result.model_config | {"extra": "allow"}
 
 
+class TokenTotals(Result):
+    input: int | None = None
+    output: int | None = None
+    cache_read: int | None = None
+    cache_write: int | None = None
+    total: int | None = None
+    calls: int = 0
+    missing_calls: int = 0
+    delegated_calls: int = 0
+    generation_seconds: float = 0
+    tokens_per_second: float | None = None
+
+
+class ChatTokenStats(Result):
+    task_id: str
+    session: TokenTotals
+    task: TokenTotals
+    response: TokenTotals
+    responses: dict[str, TokenTotals]
+
+
 class Usage(OpenModel):
     """``tui_gateway/server.py::_get_usage`` + ``agent/context_breakdown.py::context_usage_fields``."""
 
@@ -38,6 +59,7 @@ class Usage(OpenModel):
     cache_write: int | None = None
     avg_latency_s: float | None = None
     avg_tps: float | None = None
+    token_stats: ChatTokenStats | None = None
     active_subagents: int | None = None
     dev_credits_spent_micros: int | None = None
     cost_usd: float | None = None
@@ -82,6 +104,7 @@ class SessionLiveInfo(OpenModel):
     terminal_backend: str = ""
     personality: str = ""
     running: bool = False
+    active_descendant_count: int = Field(default=0, ge=0)
     turn_started_at: float | None = None
     title: str = ""
     stored_session_id: str = ""
@@ -112,6 +135,7 @@ class StoredSessionRow(OpenModel):
     last_active: float | None = None
     message_count: int = 0
     tool_call_count: int = 0
+    active_descendant_count: int = Field(default=0, ge=0)
     input_tokens: int = 0
     output_tokens: int = 0
     is_active: bool = False

@@ -12,6 +12,7 @@ import {
 } from 'react'
 
 import { useTourMarker } from '@/app/chat/tour-marker'
+import { ChatTokenPanel } from '@/app/chat/token-stats'
 import { useHudComposerDrag } from '@/app/hud/composer-drag'
 import { composerFloatingStrip, composerInputBacking } from '@/components/chat/composer-dock'
 import { $chatOnboardingSolo, $chatOnboardingThreadIds } from '@/components/onboarding-chat/assembly'
@@ -1555,6 +1556,7 @@ export function ChatBar({
               </div>
             </div>
           </ComposerPrimitive.Root>
+          <ChatTokenPanel />
           {/* Underside: chrome-free strip BELOW the composer. Outside the root
               for the same reason as the micro actions — it must not fall inside
               the pop-out drag region. Same px as the strip above, so the two

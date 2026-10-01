@@ -544,6 +544,7 @@ export interface SessionCreateResponse {
 }
 
 export interface SessionInfo {
+  active_descendant_count?: number
   archived?: boolean
   cwd?: null | string
   /** Git branch checked out in {@link cwd} when the session started/resumed.
@@ -817,6 +818,7 @@ export interface SessionResumeResult {
 }
 
 export interface SessionRuntimeInfo {
+  active_descendant_count?: number
   approval_mode?: 'manual' | 'off' | 'smart'
   branch?: string
   config_warning?: string
@@ -841,6 +843,7 @@ export interface SessionRuntimeInfo {
 }
 
 export interface UsageStats {
+  token_stats?: import('@hermes/shared').ChatTokenStats | null
   /** Rolling tokens-per-second over the last ~10 API calls (tui_gateway `_get_usage`). */
   avg_tps?: number
   /** Session prompt-cache hit rate, 0–100. Omitted (not 0) when the provider reports no cache reads. */

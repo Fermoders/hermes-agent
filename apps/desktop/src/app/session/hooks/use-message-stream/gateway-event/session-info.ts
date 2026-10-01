@@ -15,6 +15,7 @@ import {
   $selectedStoredSessionId,
   $sessions,
   applySessionTitle,
+  reconcileSessionDescendantActivity,
   sessionMatchesStoredId,
   setActiveSessionId,
   setCurrentBranch,
@@ -148,6 +149,15 @@ export function handleSessionInfoEvent(ctx: GatewayEventContext): boolean {
   } = deps
 
   if (event.type === 'session.info') {
+    const activityStoredId =
+      payload?.stored_session_id ||
+      (sessionId ? deps.sessionStateByRuntimeIdRef.current.get(sessionId)?.storedSessionId : undefined)
+    if (activityStoredId)
+      reconcileSessionDescendantActivity(
+        activityStoredId,
+        payload?.active_descendant_count,
+        event.profile || event.connectionId ? { profile: event.profile, connectionId: event.connectionId } : undefined
+      )
     // A rebuilt runtime (mid-conversation model/provider switch) speaks under
     // a NEW session_id. Before scoping anything by isActiveEvent, check
     // whether this event is the rebuilt runtime announcing itself for the

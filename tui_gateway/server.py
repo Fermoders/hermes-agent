@@ -2149,6 +2149,9 @@ def _get_usage(agent) -> dict:
         "calls": g("session_api_calls"),
     }
     comp = getattr(agent, "context_compressor", None)
+    from agent.chat_token_stats import snapshot
+    if token_stats := snapshot(agent):
+        usage["token_stats"] = token_stats
     if comp:
         from agent.context_breakdown import context_usage_fields
         usage.update(context_usage_fields(comp))
@@ -2239,7 +2242,16 @@ def _session_usage_snapshot(session: dict | None) -> dict:
     mirror_usage = _metadata_mirror(session).get("usage")
     if sess.get("agent") is not None and not (sess.get("_compute_host_active") and isinstance(mirror_usage, dict)):
         return _get_usage(sess["agent"])
-    return dict(mirror_usage) if isinstance(mirror_usage, dict) else {}
+    usage = dict(mirror_usage) if isinstance(mirror_usage, dict) else {}
+    if not sess.get("_compute_host_active") and sess.get("session_key"):
+        # Lazy resume must not construct an agent or lose its durable display ledger.
+        with contextlib.suppress(Exception), _session_db(sess) as db:
+            if db is not None:
+                from types import SimpleNamespace
+                from agent.chat_token_stats import snapshot
+                if stats := snapshot(SimpleNamespace(_session_db=db, session_id=sess["session_key"])):
+                    usage["token_stats"] = stats
+    return usage
 
 
 def _project_info_for_cwd(cwd: str) -> dict | None:
@@ -2361,6 +2373,9 @@ def _session_info(agent, session: dict | None = None) -> dict:
         from hermes_cli.version_info import get_version_info
 
         info.update(version=get_version_info().base_version, release_date=__release_date__)
+    from tui_gateway.session_descendant_activity import descendant_activity
+    with _session_db(sess) as activity_db:
+        info.update(descendant_activity(activity_db, session_key or ""))
     live_agent = agent is not None and not sess.get("_compute_host_active")
     if live_agent:
         with contextlib.suppress(Exception):
@@ -3043,7 +3058,7 @@ def _find_live_session_by_key(session_key: str, profile_home=_ANY_PROFILE) -> tu
 def _fallback_session_info(session: dict) -> dict:
     agent = session.get("agent")
     if agent is not None:
-        return _session_info(agent)
+        return _session_info(agent, session)
     # The SESSION's own workspace, not the launch dir (wrong project in the desktop Files pane). `branch` is
     # always emitted ("" outside git) so a stale label clears; `desktop_contract` missing reads as "out of date".
     # Reporting `_default_session_cwd()` here told a lazily-resumed session's client that its workspace was
@@ -3052,8 +3067,12 @@ def _fallback_session_info(session: dict) -> dict:
     # so a client can clear a stale label instead of retaining it — the same contract `_lazy_session_info`
     # above already follows.
     cwd = _session_cwd(session)
+    from tui_gateway.session_descendant_activity import descendant_activity
+    with _session_db(session) as activity_db:
+        activity = descendant_activity(activity_db, session.get("session_key") or "")
     return {
         "cwd": cwd, "branch": git_probe.branch(cwd), "project": _project_info_for_cwd(cwd), "lazy": True,
+        **activity, "stored_session_id": session.get("session_key") or "",
         "model": _session_default_model(session), "skills": {}, "tools": {}, "desktop_contract": DESKTOP_BACKEND_CONTRACT,
     }
 

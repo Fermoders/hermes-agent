@@ -200,10 +200,13 @@ def _sessions_sig():
     change signal. Hashing only those rows avoids false Desktop refreshes from
     unrelated state.db writes such as gateway heartbeats.
     """
-    return tuple(
+    from tui_gateway.session_descendant_activity import activity_revision
+    # Child lifecycle can change without any parent/session-table write. Make
+    # that REST-cache invalidation visible through the existing changed event.
+    return (activity_revision(), tuple(
         _session_db_content_sig(root / "state.db")
         for root in (_watcher_home(), *_served_profile_homes)
-    )
+    ))
 
 
 def _projects_sig():

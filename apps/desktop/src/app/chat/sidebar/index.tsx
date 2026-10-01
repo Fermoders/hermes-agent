@@ -127,7 +127,7 @@ import {
   markAllSessionsRead,
   sessionPinId
 } from '@/store/session'
-import { $sessionDotStateById, sessionStatusBucket } from '@/store/session-dot-state'
+import { $sessionDotStateById, sessionDotStateFor, sessionStatusBucket } from '@/store/session-dot-state'
 import { $unconfirmedPinWrites } from '@/store/session-pin-sync'
 import { $removedSessionIds } from '@/store/session-removal'
 import { $focusedSessionIsTile, $focusedStoredSessionId, $workingSessionIds } from '@/store/session-states'
@@ -617,7 +617,7 @@ export function ChatSidebar({
   // (same rule as the overview overlay), so filtering to Home keeps Home's rows.
   const sessionMatchesFilters = useCallback(
     (session: SessionInfo) => {
-      if (statusFilter.length && !statusFilter.includes(sessionStatusBucket(dotStates[session.id]))) {
+      if (statusFilter.length && !statusFilter.includes(sessionStatusBucket(sessionDotStateFor(dotStates, session)))) {
         return false
       }
 

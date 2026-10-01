@@ -3,6 +3,7 @@ import { FIELD_DESCRIPTIONS, FIELD_LABELS } from '@/app/settings/constants'
 import type { Translations } from './types'
 
 export const en: Translations = {
+  tokenStats: { title: 'Token usage', read: 'Read', cacheRead: 'Cache read', cacheWrite: 'Cache write', output: 'Output', rate: 'tok/s', agents: 'Agent calls', partial: 'Unavailable calls:', task: 'Task', session: 'Session', response: 'Response', unavailable: 'Token usage unavailable', newTask: 'Start new task', rateHint: 'Output / provider-call seconds (includes TTFT and parallel agent work; excludes tool waits).' },
   externalOpenFailed: {
     title: 'Couldn’t open this link',
     message: 'No browser is registered to open this address. Copy the link and open it manually.',

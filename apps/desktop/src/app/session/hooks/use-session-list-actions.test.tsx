@@ -148,6 +148,43 @@ afterEach(() => {
   setSessionsLoadError(false)
 })
 
+describe('descendant-only sidebar refresh', () => {
+  it('a fresh identical list supersedes a newer roster without replacing row identity', async () => {
+    const { reconcileSubagentSnapshot, $subagentsBySession } = await import('@/store/subagents')
+    const { $sessionDotStateById } = await import('@/store/session-dot-state')
+    const initial = row('activity', { active_descendant_count: 0 })
+    setSessions([initial])
+    reconcileSubagentSnapshot('activity', [{ subagent_id: 'child', status: 'running' }])
+    expect($sessionDotStateById.get().activity).toBe('delegating')
+    listSidebarSessions.mockResolvedValue(sidebar({ sessions: [{ ...initial }] }))
+    const { result } = renderHook(() => useSessionListActions({ profileScope: 'default' }))
+    await act(async () => {
+      await result.current.refreshSessions()
+    })
+    expect($sessions.get()[0]).toBe(initial)
+    expect($sessionDotStateById.get().activity ?? 'idle').toBe('idle')
+    $subagentsBySession.set({})
+  })
+  it('publishes start and finish counts through the real refresh in all slices', async () => {
+    const { result } = renderHook(() => useSessionListActions({ profileScope: 'default' }))
+    for (const count of [0, 1, 0]) {
+      listSidebarSessions.mockResolvedValue(
+        sidebar(
+          { sessions: [row('activity', { active_descendant_count: count })] },
+          [row('cron-activity', { source: 'cron', active_descendant_count: count })],
+          [row('msg-activity', { source: 'telegram', active_descendant_count: count })]
+        )
+      )
+      await act(async () => {
+        await result.current.refreshSessions()
+      })
+      for (const store of [$sessions, $cronSessions, $messagingSessions]) {
+        expect(store.get()[0]?.active_descendant_count).toBe(count)
+      }
+    }
+  })
+})
+
 describe('workspace-only sidebar refresh', () => {
   it.each(['cwd', 'git_repo_root', 'git_branch'] as const)(
     'publishes %s changes to all slices without another message or a session click',

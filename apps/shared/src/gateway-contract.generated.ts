@@ -531,6 +531,7 @@ export interface SessionLiveInfo {
   terminal_backend?: string
   personality?: string
   running?: boolean
+  active_descendant_count?: number
   turn_started_at?: number | null
   title?: string
   stored_session_id?: string
@@ -575,11 +576,31 @@ export interface Usage {
   cache_write?: number | null
   avg_latency_s?: number | null
   avg_tps?: number | null
+  token_stats?: ChatTokenStats | null
   active_subagents?: number | null
   dev_credits_spent_micros?: number | null
   cost_usd?: number | null
   cost_status?: string | null
   [key: string]: unknown
+}
+export interface ChatTokenStats {
+  task_id: string
+  session: TokenTotals
+  task: TokenTotals
+  response: TokenTotals
+  responses: Record<string, TokenTotals>
+}
+export interface TokenTotals {
+  input?: number | null
+  output?: number | null
+  cache_read?: number | null
+  cache_write?: number | null
+  total?: number | null
+  calls?: number
+  missing_calls?: number
+  delegated_calls?: number
+  generation_seconds?: number
+  tokens_per_second?: number | null
 }
 export interface McpServerStatus {
   name?: string
@@ -2474,6 +2495,7 @@ export interface ProjectTreeSession {
   last_active?: number | null
   message_count?: number
   tool_call_count?: number
+  active_descendant_count?: number
   input_tokens?: number
   output_tokens?: number
   is_active?: boolean
@@ -3135,6 +3157,7 @@ export interface SessionListRow {
   started_at?: number
   message_count?: number
   live_message_count?: number | null
+  active_descendant_count?: number
   source?: string
 }
 export interface SessionMostRecentParams {
@@ -3239,6 +3262,7 @@ export interface SessionCwdSetResult {
   terminal_backend?: string
   personality?: string
   running?: boolean
+  active_descendant_count?: number
   turn_started_at?: number | null
   title?: string
   stored_session_id?: string
@@ -3348,6 +3372,7 @@ export interface SessionUsageResult {
   cache_write?: number | null
   avg_latency_s?: number | null
   avg_tps?: number | null
+  token_stats?: ChatTokenStats | null
   active_subagents?: number | null
   dev_credits_spent_micros?: number | null
   cost_usd?: number | null
@@ -5269,6 +5294,8 @@ export interface RpcMethods {
   'session.steer': { params: SessionCorrectionParams; result: SessionCorrectionResult }
   /** Read or set a live session's title; a title set before the row exists is queued. */
   'session.title': { params: SessionTitleParams; result: SessionTitleResult }
+  /** Explicitly begin a new accounting task; ordinary messages never reset totals. */
+  'session.tokens.new_task': { params: SessionParams; result: Usage }
   /** Drop the last user turn (and everything after it) from an idle session. */
   'session.undo': { params: SessionUndoParams; result: SessionUndoResult }
   /** Token / context / cost counters for the session (+ Nous credit lines when available). */
@@ -5579,6 +5606,7 @@ export const RPC_METHODS = [
   'session.status',
   'session.steer',
   'session.title',
+  'session.tokens.new_task',
   'session.undo',
   'session.usage',
   'session.workspace.move',

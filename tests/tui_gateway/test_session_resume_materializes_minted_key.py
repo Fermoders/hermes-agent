@@ -75,6 +75,33 @@ def test_resume_materializes_row_for_minted_key(real_db):
         server.profile_name_for_home(None) or server._current_profile_name())
 
 
+def test_resume_activate_and_reconnect_keep_descendant_activity(real_db, monkeypatch):
+    from types import SimpleNamespace
+    from tools.delegate_tool_child_run import _register_child
+    from tools.delegate_tool_registry import _unregister_subagent
+    real_db.create_session(EXISTING_KEY, source="tui", model="test-model")
+    child = SimpleNamespace(_subagent_id="resume-activity-child", _delegate_depth=1,
+                            _parent_session_id=EXISTING_KEY, _session_db=real_db, model="test")
+    _register_child(child, None, "work", owner_session_id=None,
+                    owner_transport=None, owner_session_record=None)
+    monkeypatch.setattr(server, "_reattach_refusal", lambda *args: None)
+    try:
+        cold = _resume(session_id=EXISTING_KEY)["result"]
+        assert cold["info"]["active_descendant_count"] == 1
+        sid = cold["session_id"]
+        activate = server.handle_request({"id": 2, "method": "session.activate",
+                                          "params": {"session_id": sid, "omit_messages": True}})
+        assert activate["result"]["info"]["active_descendant_count"] == 1
+        reconnect = _resume(session_id=EXISTING_KEY)["result"]
+        assert reconnect["info"]["active_descendant_count"] == 1
+        _unregister_subagent("resume-activity-child", agent=child)
+        activate = server.handle_request({"id": 3, "method": "session.activate",
+                                          "params": {"session_id": sid, "omit_messages": True}})
+        assert activate["result"]["info"]["active_descendant_count"] == 0
+    finally:
+        _unregister_subagent("resume-activity-child", agent=child)
+
+
 def test_resume_existing_row_unaffected(real_db):
     """A persisted session resumes normally and its row is not duplicated."""
     real_db.create_session(EXISTING_KEY, source="tui", model="test-model")

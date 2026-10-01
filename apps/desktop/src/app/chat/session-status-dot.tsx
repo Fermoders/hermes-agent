@@ -4,7 +4,7 @@ import { type Translations, useI18n } from '@/i18n'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
-import { $sessionDotStateById, type SessionDotState } from '@/store/session-dot-state'
+import { $sessionDotStateById, type SessionDotState, sessionDotStateFor } from '@/store/session-dot-state'
 import type { SessionInfo } from '@/types/hermes'
 
 // A pure lookup table: each state maps to its className, aria-label, and title.
@@ -40,6 +40,14 @@ const DOT_VARIANTS: Record<SessionDotState, DotVariant> = {
     ariaLabel: r => r.sessionRunning,
     className: `${DOT_BASE} bg-(--ui-accent)`,
     role: 'status'
+  },
+  // Child agents are producing after the parent's turn ended. Keep the running
+  // accent/arc without claiming the parent model itself is streaming.
+  delegating: {
+    ariaLabel: r => r.sessionRunning,
+    className: `${DOT_BASE} bg-(--ui-accent)`,
+    role: 'status',
+    title: r => r.backgroundRunning
   },
   // Hollow accent — still authoritatively running, but nothing has arrived for
   // the watchdog window. Same color as working because it IS working; hollow
@@ -134,7 +142,7 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
   // Selector, not a plain useStore: the map is rebuilt whenever any session's
   // status changes, but a given dot only repaints when ITS OWN state flips.
   const dotState = useStoreSelector($sessionDotStateById, states =>
-    storedSessionId ? (states[storedSessionId] ?? 'idle') : 'draft'
+    storedSessionId ? (session ? sessionDotStateFor(states, session) : (states[storedSessionId] ?? 'idle')) : 'draft'
   )
 
   const variant = DOT_VARIANTS[dotState]

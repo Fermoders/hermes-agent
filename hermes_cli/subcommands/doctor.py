@@ -22,4 +22,8 @@ def build_doctor_parser(subparsers, *, cmd_doctor: Callable) -> None:
         help="Acknowledge a security advisory by ID and exit. After ack, the "
             "advisory will no longer trigger startup banners. Run `hermes "
             "doctor` first to see active advisories and their IDs.")
+    doctor_parser.add_argument(
+        "--result-json", metavar="PATH", default=None,
+        help="Write a versioned completed-diagnostics JSON result to PATH after "
+             "the report finishes; no result is written on a crash. Human output is unchanged.")
     doctor_parser.set_defaults(func=cmd_doctor)

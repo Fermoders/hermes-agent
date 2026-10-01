@@ -51,3 +51,51 @@ main()
     )
     assert result.returncode == int(unresolved), result.stdout + result.stderr
     assert ("fixture unresolved problem" if unresolved else "All checks passed") in result.stdout
+
+
+@pytest.mark.parametrize("outcome", ["healthy", "findings", "crash"])
+def test_doctor_completed_result_is_written_only_after_checks(tmp_path, outcome):
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    receipt = tmp_path / "result.json"
+    program = f"""
+import sys
+import hermes_cli.doctor as doctor
+from hermes_cli.doctor_report import Finding
+from hermes_cli.main import main
+
+def check(fix):
+    assert fix is False
+    print('fixture diagnostic report')
+    if {outcome!r} == 'crash':
+        raise RuntimeError('fixture doctor crash')
+    return Finding(issues=['fixture finding'] if {outcome!r} == 'findings' else [])
+
+doctor.DOCTOR_CHECKS = ((None, check),)
+sys.argv = ['hermes', 'doctor', '--result-json', {str(receipt)!r}]
+main()
+"""
+    env = os.environ.copy()
+    env["HERMES_HOME"] = str(tmp_path / "home")
+    env["PYTHONIOENCODING"] = "utf-8"
+    result = subprocess.run([sys.executable, "-c", program],
+                            cwd=Path(__file__).resolve().parents[2], env=env,
+                            capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert result.returncode == int(outcome != "healthy"), result.stdout + result.stderr
+    assert 'fixture diagnostic report' in result.stdout
+    if outcome == "crash":
+        assert 'RuntimeError: fixture doctor crash' in result.stderr
+        assert not receipt.exists()
+    else:
+        data = json.loads(receipt.read_text(encoding="utf-8"))
+        assert data["schema_version"] == 1
+        assert data["command"] == "doctor"
+        assert data["completed"] is True
+        assert data["exit_code"] == result.returncode
+        assert data["issues"] == (["fixture finding"] if outcome == "findings" else [])
+        assert data["manual_issues"] == []
+        assert data["fixed"] == 0

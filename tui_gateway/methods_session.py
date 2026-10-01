@@ -54,6 +54,19 @@ def _flag(params: dict, name: str) -> bool:
     return is_truthy_value(params.get(name, False))
 
 
+@method("session.tokens.new_task")
+@_profile_scoped
+@_with_live_session
+def _new_token_task(rid, params, session):
+    if session.get("running"):
+        return _err(rid, 4002, "Finish the active response before starting a new task")
+    from agent.chat_token_stats import new_task
+    new_task(session["agent"])
+    usage = _get_usage(session["agent"])
+    _emit("session.usage", params["session_id"], {"usage": usage})
+    return _ok(rid, usage)
+
+
 def _int_param(params: dict, key: str, default: int) -> int:
     """``int(params[key])`` with ``default`` for missing / unparsable values."""
     try:
@@ -520,7 +533,9 @@ def _session_list_by_title(rid, db, title_lookup: str) -> dict:
         # Real compression continuation only: the resolver's unmarked-child fallback could redirect Bot Chat.
         tip = db.get_compression_tip(row["id"]) or row["id"]
     tip_row = (db.get_session(tip) or row) if tip != row["id"] else row
-    return _ok(rid, {"sessions": [_session_row_summary(row, tip_row=tip_row, resolved_id=tip, db=db)]})
+    from tui_gateway.session_descendant_activity import descendant_activity
+    return _ok(rid, {"sessions": [{**_session_row_summary(row, tip_row=tip_row, resolved_id=tip, db=db),
+                                  **descendant_activity(db, tip)}]})
 
 
 @method("session.list")
@@ -545,7 +560,10 @@ def _(rid, params: dict, db) -> dict:
         # No live_message_count here on purpose: the bulk listing serves rows whose open
         # paths never demand history (expectHistory defaults false); the count is a
         # per-session scan and would turn one listing call into hundreds of them.
-        return _ok(rid, {"sessions": [_session_row_summary(s) for s in rows]})
+        from tui_gateway.session_descendant_activity import active_descendant_counts
+        counts = active_descendant_counts(db, [s["id"] for s in rows])
+        return _ok(rid, {"sessions": [{**_session_row_summary(s),
+                                      "active_descendant_count": counts[s["id"]]} for s in rows]})
     except Exception as e:
         return _err(rid, 5006, str(e))
 
@@ -871,6 +889,8 @@ def _resume_response(
                **({"messages_omitted": ctx.omit_messages} if hydrating is None else {"hydrating": hydrating}),
                "info": info, "inflight": None, "running": running, "session_key": ctx.target,
                "started_at": record["created_at"] if started_at is None else started_at, "status": status}
+    from tui_gateway.session_descendant_activity import descendant_activity
+    info.update(descendant_activity(ctx.db, ctx.target))
     if auto_continue is not None:
         payload["auto_continue"] = auto_continue
     return _ok(ctx.rid, _attach_todo_state(payload, record))

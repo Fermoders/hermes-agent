@@ -107,6 +107,40 @@ def _slice_ids(payload, slice_name):
     return {row["id"] for row in payload[slice_name]["sessions"]}
 
 
+def test_cold_sidebar_activity_and_cached_zero_clear(client, profiles_on_disk, monkeypatch):
+    from types import SimpleNamespace
+    from hermes_state import SessionDB
+    from hermes_cli.web_routers import profiles as routes
+    from tools.delegate_tool_child_run import _register_child
+    from tools import delegate_tool_registry as registry
+
+    # Exercise both response and per-profile caches: cleanup does NOT write DB.
+    monkeypatch.setattr(routes, "_SIDEBAR_CACHE_TTL_SECONDS", 60.0)
+    for home in profiles_on_disk.values():
+        _seed_session(home, "same-parent", source="cli")
+    saved = dict(registry._active_subagents)
+    registry._active_subagents.clear()
+    try:
+        with SessionDB(profiles_on_disk["worker"] / "state.db") as db:
+            child = SimpleNamespace(_subagent_id="cold-child", _delegate_depth=1,
+                                    _parent_session_id="same-parent", _session_db=db, model="test")
+            _register_child(child, None, "work", owner_session_id=None,
+                            owner_transport=None, owner_session_record=None)
+            for profile, expected in (("worker", 1), ("default", 0), ("worker", 1)):
+                payload = client.get("/api/profiles/sessions/sidebar",
+                                     params={"recents_profile": profile}).json()
+                assert payload["recents"]["sessions"][0]["active_descendant_count"] == expected
+                page = client.get("/api/profiles/sessions", params={"profile": profile}).json()
+                assert page["sessions"][0]["active_descendant_count"] == expected
+            registry._unregister_subagent("cold-child", agent=child)
+            payload = client.get("/api/profiles/sessions/sidebar",
+                                 params={"recents_profile": "worker"}).json()
+            assert payload["recents"]["sessions"][0]["active_descendant_count"] == 0
+    finally:
+        registry._active_subagents.clear()
+        registry._active_subagents.update(saved)
+
+
 class TestSidebarScope:
 
     def test_concrete_profile_sees_only_its_own_slices(self, client, profiles_on_disk):

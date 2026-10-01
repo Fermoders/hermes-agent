@@ -13,6 +13,9 @@ from .common import (OpenModel, PendingApproval, ProfileParams, SessionLiveInfo,
 from .connectors_operation import ConnectionRequestPayload
 from .registry import method
 
+method("session.tokens.new_task", params=SessionParams, result=Usage,
+       doc="Explicitly begin a new accounting task; ordinary messages never reset totals.")
+
 
 # ── shared live-session snapshot ──────────────────────────────────────────────────────────────
 
@@ -227,6 +230,7 @@ class SessionListRow(Result):
     started_at: float = 0
     message_count: int = 0
     live_message_count: int | None = None
+    active_descendant_count: int = 0
     source: str = ""
 
 

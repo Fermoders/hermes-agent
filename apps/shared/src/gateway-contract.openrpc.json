@@ -3553,6 +3553,24 @@
       }
     },
     {
+      "name": "session.tokens.new_task",
+      "summary": "Explicitly begin a new accounting task; ordinary messages never reset totals.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/SessionParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Usage"
+        }
+      }
+    },
+    {
       "name": "session.undo",
       "summary": "Drop the last user turn (and everything after it) from an idle session.",
       "params": [
@@ -7601,6 +7619,40 @@
         "description": "``change_watcher._CHANGE_WATCHES`` payload fn \u2014 ``{}`` for every watch except pet.changed.",
         "properties": {},
         "title": "ChangeSignalPayload",
+        "type": "object"
+      },
+      "ChatTokenStats": {
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "session": {
+            "$ref": "#/components/schemas/TokenTotals"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TokenTotals"
+          },
+          "response": {
+            "$ref": "#/components/schemas/TokenTotals"
+          },
+          "responses": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TokenTotals"
+            },
+            "title": "Responses",
+            "type": "object"
+          }
+        },
+        "required": [
+          "task_id",
+          "session",
+          "task",
+          "response",
+          "responses"
+        ],
+        "title": "ChatTokenStats",
         "type": "object"
       },
       "ClarifyLockParams": {
@@ -25272,6 +25324,12 @@
             "title": "Tool Call Count",
             "type": "integer"
           },
+          "active_descendant_count": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Active Descendant Count",
+            "type": "integer"
+          },
           "input_tokens": {
             "default": 0,
             "title": "Input Tokens",
@@ -29927,6 +29985,12 @@
             "title": "Running",
             "type": "boolean"
           },
+          "active_descendant_count": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Active Descendant Count",
+            "type": "integer"
+          },
           "turn_started_at": {
             "anyOf": [
               {
@@ -30675,6 +30739,11 @@
             "default": null,
             "title": "Live Message Count"
           },
+          "active_descendant_count": {
+            "default": 0,
+            "title": "Active Descendant Count",
+            "type": "integer"
+          },
           "source": {
             "default": "",
             "title": "Source",
@@ -30793,6 +30862,12 @@
             "default": false,
             "title": "Running",
             "type": "boolean"
+          },
+          "active_descendant_count": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Active Descendant Count",
+            "type": "integer"
           },
           "turn_started_at": {
             "anyOf": [
@@ -31917,6 +31992,17 @@
             ],
             "default": null,
             "title": "Avg Tps"
+          },
+          "token_stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatTokenStats"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "active_subagents": {
             "anyOf": [
@@ -35736,6 +35822,105 @@
         "title": "TodoUpdatedPayload",
         "type": "object"
       },
+      "TokenTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output"
+          },
+          "cache_read": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cache Read"
+          },
+          "cache_write": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cache Write"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Total"
+          },
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "missing_calls": {
+            "default": 0,
+            "title": "Missing Calls",
+            "type": "integer"
+          },
+          "delegated_calls": {
+            "default": 0,
+            "title": "Delegated Calls",
+            "type": "integer"
+          },
+          "generation_seconds": {
+            "default": 0,
+            "title": "Generation Seconds",
+            "type": "number"
+          },
+          "tokens_per_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tokens Per Second"
+          }
+        },
+        "title": "TokenTotals",
+        "type": "object"
+      },
       "ToolCompletePayload": {
         "additionalProperties": false,
         "description": "``tool_progress._on_tool_complete``; ``todos``/``revision`` merged in for the todo tools.",
@@ -36881,6 +37066,17 @@
             ],
             "default": null,
             "title": "Avg Tps"
+          },
+          "token_stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatTokenStats"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "active_subagents": {
             "anyOf": [

@@ -170,6 +170,13 @@ def _print_summary(should_fix: bool, total: Finding) -> None:
 def run_doctor(args):
     """Run diagnostic checks."""
     should_fix = getattr(args, 'fix', False)
+    result_path = getattr(args, 'result_json', None)
+    if result_path:
+        from pathlib import Path
+        result_path = Path(result_path)
+        # Refuse reuse: a stale completed result must never survive a failed run.
+        if result_path.exists():
+            raise FileExistsError(f"Doctor result path already exists: {result_path}")
     # Doctor runs from the interactive CLI, so CLI-gated tool checks (e.g. cronjob) see the same context.
     os.environ.setdefault("HERMES_INTERACTIVE", "1")
     if getattr(args, 'ack', None):
@@ -189,4 +196,23 @@ def run_doctor(args):
         from hermes_cli.doctor_live import maybe_run_live_checks
         maybe_run_live_checks(args, total.manual_issues)
     _print_summary(should_fix, total)
-    return int(bool(total.issues or total.manual_issues))
+    exit_code = int(bool(total.issues or total.manual_issues))
+    if result_path:
+        import json
+        import tempfile
+        # Publish only after a complete write and successful close. A crash or
+        # filesystem error must not expose a completed result to automation.
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False,
+                                             dir=result_path.parent, prefix=".doctor-") as stream:
+                temporary_path = stream.name
+                json.dump({"schema_version": 1, "command": "doctor", "completed": True,
+                           "exit_code": exit_code, "issues": total.issues,
+                           "manual_issues": total.manual_issues, "fixed": total.fixed}, stream)
+                stream.write("\n")
+            os.replace(temporary_path, result_path)
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+    return exit_code

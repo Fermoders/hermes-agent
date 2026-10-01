@@ -4,6 +4,7 @@ import { defineLocale } from './define-locale'
 import { introJa } from './intro-ja'
 
 export const ja = defineLocale({
+  tokenStats: { title: 'トークン使用量', read: '読み取り', cacheRead: 'キャッシュ読み取り', cacheWrite: 'キャッシュ書き込み', output: '出力', rate: 'tok/s', agents: 'エージェント呼出', partial: 'データなし：', task: 'タスク', session: 'セッション', response: '応答', unavailable: 'トークン使用量は取得できません', newTask: '新しいタスク', rateHint: '出力 / API 秒数（最初のトークン待ちと並列エージェントを含み、ツール待ちを除く）。' },
   externalOpenFailed: {
     title: 'このリンクを開けませんでした',
     message: 'このアドレスを開くブラウザが登録されていません。リンクをコピーして手動で開いてください。',

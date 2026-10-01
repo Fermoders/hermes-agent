@@ -66,6 +66,11 @@ interface AuxTaskCopy {
 }
 
 export interface Translations {
+  tokenStats: {
+    title: string; read: string; cacheRead: string; cacheWrite: string; output: string;
+    rate: string; agents: string; partial: string; task: string; session: string;
+    response: string; unavailable: string; newTask: string; rateHint: string
+  }
   /** Shared-metrics consent: first-run dialog + Settings › Safety toggles. */
   sharedMetrics: {
     consentTitle: string

@@ -413,7 +413,8 @@ def _sidebar_singleflight_cache(func):
 
         bound = signature.bind(*args, **kwargs)
         bound.apply_defaults()
-        key = tuple(bound.arguments.items())
+        from tui_gateway.session_descendant_activity import activity_revision
+        key = (tuple(bound.arguments.items()), activity_revision())
         cached = _lookup(key)
         if cached is not miss:
             return cached
@@ -494,7 +495,8 @@ def get_profiles_sessions(
                 # Same SQL-level blob skip as /api/sessions.
                 compact_rows=not full, include_pinned=True, **scoped)
             totals[name] = db.session_count(exclude_children=True, **scoped)
-            merged.extend(_tag_rows(rows, name, now))
+            from tui_gateway.session_descendant_activity import annotate_activity
+            merged.extend(_tag_rows(annotate_activity(db, rows), name, now))
         _read_profile_db(name, home, errors, _read)
 
     sort_key = "last_active" if order == "recent" else "started_at"
@@ -554,8 +556,11 @@ def get_profiles_sessions_sidebar(
     def _build_slices(db, cache_key, recents_subagents):
         # ``usage`` is aggregated in SQL rather than over the recents window: the window is a
         # page, and a total that shrank when you scrolled would be worse than no total at all.
-        slices = {"recents": _slice(db, "recents", recents_subagents), "usage": db.usage_totals(),
-                  "cron": _slice(db, "cron"), "messaging": _slice(db, "messaging")}
+        from tui_gateway.session_descendant_activity import annotate_activity
+        slices = {"recents": annotate_activity(db, _slice(db, "recents", recents_subagents)),
+                  "usage": db.usage_totals(),
+                  "cron": annotate_activity(db, _slice(db, "cron")),
+                  "messaging": annotate_activity(db, _slice(db, "messaging"))}
         _sidebar_profile_cache_put(cache_key, slices)
         return slices
 
@@ -568,10 +573,12 @@ def get_profiles_sessions_sidebar(
         db_path = _profile_state_db(home)
         if not db_path.exists():
             continue
+        from tui_gateway.session_descendant_activity import activity_revision
         recents_subagents = subagent_listing_scope(home, exclude_sources=recents_exclude_list or None)
         profile_cache_key = (str(db_path), _sidebar_db_fingerprint(db_path), cap["recents"],
                              tuple(recents_exclude_list), cap["cron"], cap["messaging"],
-                             tuple(messaging_exclude_list), recents_subagents[0])
+                             tuple(messaging_exclude_list), recents_subagents[0],
+                             activity_revision())
         slices = _sidebar_profile_cache_get(profile_cache_key)
         if slices is None:
             slices = _read_profile_db(

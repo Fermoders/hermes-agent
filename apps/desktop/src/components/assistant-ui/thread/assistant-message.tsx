@@ -8,6 +8,7 @@ import {
   useMessageRuntime,
   useThreadRuntime
 } from '@assistant-ui/react'
+import { ResponseTokenFooter } from '@/app/chat/token-stats'
 import { useStore } from '@nanostores/react'
 import { type FC, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useInRouterContext, useNavigate } from 'react-router'
@@ -355,6 +356,7 @@ const AssistantMessageBody: FC<AssistantMessageProps & { collapsedNotice?: null 
           {/* Last thing in the turn — under the action bar, the way Cursor ends a
           turn on its summary rather than burying it above the controls. */}
           <SettledChangedFiles />
+          <ResponseTokenFooter />
           <StreamingMarker />
         </>
       )}

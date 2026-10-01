@@ -28,7 +28,19 @@ import { computed } from 'nanostores'
 import { stableArray, stableRecord } from '@/lib/stable-array'
 
 import { $backgroundRunningSessionIds } from './composer-status'
-import { $messagingSessions, $sessions, $unreadFinishedSessionIds, lineageAliases } from './session'
+import { backendScopeKey } from '@hermes/shared'
+import {
+  $cronSessions,
+  $messagingSessions,
+  $sessions,
+  $unreadFinishedSessionIds,
+  lineageAliases,
+  sessionActivityKey,
+  sessionMatchesStoredId
+} from './session'
+import { $sessionActivityObservationEpoch, sessionActivityObservation } from './session-activity-observation'
+import { runtimeSessionOwner } from './session-states'
+import type { SessionInfo } from '@/types/hermes'
 import {
   $attentionSessionIds,
   $draftSessionIds,
@@ -49,42 +61,95 @@ import { $subagentsBySession, activeSubagentCount } from './subagents'
 // lineageAliases covers whichever tip of the conversation a surface holds.
 let delegatingIds: readonly string[] = []
 export const $delegatingSessionIds = computed(
-  [$subagentsBySession, $sessionStates, $sessions],
-  (bySession, states, sessions) => {
-    const ids = new Set<string>()
-
-    for (const [runtimeId, items] of Object.entries(bySession)) {
-      if (activeSubagentCount(items) === 0) {
-        continue
-      }
-
-      for (const alias of lineageAliases(states[runtimeId]?.storedSessionId ?? runtimeId, sessions)) {
-        ids.add(alias)
+  [$subagentsBySession, $sessionStates, $sessions, $messagingSessions, $cronSessions, $sessionActivityObservationEpoch],
+  (bySession, states, sessions, messaging, cron) => {
+    const rows = [...sessions, ...messaging, ...cron]
+    const facts = new Map<string, { count: number; revision: number }>()
+    const publish = (key: string, count: number, revision: number) => {
+      if (revision >= (facts.get(key)?.revision ?? -1)) facts.set(key, { count, revision })
+    }
+    for (const row of rows) {
+      if (typeof row.active_descendant_count !== 'number') continue
+      const family = rows.filter(
+        r => backendScopeKey(r.connection_id, r.profile) === backendScopeKey(row.connection_id, row.profile)
+      )
+      for (const alias of lineageAliases(row.id, family)) {
+        publish(sessionActivityKey({ ...row, id: alias }), row.active_descendant_count, sessionActivityObservation(row))
       }
     }
-
+    for (const [runtimeId, items] of Object.entries(bySession)) {
+      const stored = states[runtimeId]?.storedSessionId ?? runtimeId
+      const owner = runtimeSessionOwner(runtimeId)
+      const scope =
+        typeof owner === 'string'
+          ? backendScopeKey(null, owner)
+          : owner
+            ? backendScopeKey(owner.connectionId, owner.profile)
+            : null
+      const matches = rows.filter(
+        row =>
+          sessionMatchesStoredId(row, stored) && (!scope || backendScopeKey(row.connection_id, row.profile) === scope)
+      )
+      const scopes = new Set(matches.map(row => backendScopeKey(row.connection_id, row.profile)))
+      if (!scope && scopes.size > 1) continue
+      const count = activeSubagentCount(items)
+      const revision = sessionActivityObservation(items)
+      if (!matches.length) publish(stored, count, revision)
+      for (const row of matches) {
+        const family = rows.filter(
+          r => backendScopeKey(r.connection_id, r.profile) === backendScopeKey(row.connection_id, row.profile)
+        )
+        for (const alias of lineageAliases(stored, family))
+          publish(sessionActivityKey({ ...row, id: alias }), count, revision)
+      }
+    }
+    const ids = new Set<string>()
+    for (const [key, fact] of facts) if (fact.count > 0) ids.add(key)
+    // A unique tip does not make its compression root unique across backends.
+    for (const row of rows) {
+      const family = rows.filter(
+        r => backendScopeKey(r.connection_id, r.profile) === backendScopeKey(row.connection_id, row.profile)
+      )
+      for (const alias of lineageAliases(row.id, family)) {
+        const scopes = new Set(
+          rows.filter(r => sessionMatchesStoredId(r, alias)).map(r => backendScopeKey(r.connection_id, r.profile))
+        )
+        if (scopes.size === 1 && ids.has(sessionActivityKey({ ...row, id: alias }))) ids.add(alias)
+      }
+    }
     return (delegatingIds = stableArray(delegatingIds, [...ids]))
   }
 )
 
-export type SessionDotState = 'background' | 'draft' | 'idle' | 'needs-input' | 'stalled' | 'unread' | 'working'
+export function sessionDotStateFor(
+  states: Readonly<Record<string, SessionDotState>>,
+  row: Pick<SessionInfo, 'id' | 'profile' | 'connection_id'>
+): SessionDotState {
+  return states[sessionActivityKey(row)] ?? states[row.id] ?? 'idle'
+}
+
+export type SessionDotState =
+  'background' | 'delegating' | 'draft' | 'idle' | 'needs-input' | 'stalled' | 'unread' | 'working'
 
 /** The sidebar row's arc. A quiet turn is still authoritatively running, so
- *  `stalled` keeps it; a blocking prompt drops it, because the amber dot is the
+ *  `stalled` keeps it; delegated children keep it without a live parent turn.
+ *  A blocking prompt drops it, because the amber dot is the
  *  louder cue and two treatments at once fight each other. */
-export const showsRunningArc = (state: SessionDotState): boolean => state === 'stalled' || state === 'working'
+export const showsRunningArc = (state: SessionDotState): boolean =>
+  state === 'delegating' || state === 'stalled' || state === 'working'
 
 /** Whether this turn is the session's own, live: brighter title, and the row's
- *  age yields to the actions menu. Wider than the arc — a turn waiting on an
- *  answer has not ended. */
-export const hasLiveTurn = (state: SessionDotState): boolean => showsRunningArc(state) || state === 'needs-input'
+ *  age yields to the actions menu. Child-only work is not a parent turn; a
+ *  turn waiting on an answer has not ended. */
+export const hasLiveTurn = (state: SessionDotState): boolean =>
+  state === 'working' || state === 'stalled' || state === 'needs-input'
 
 /** The buckets the sidebar's status filter and ordering work in. `stalled` and
  *  `background` fold into the state a user would name them. */
 export type SessionStatusBucket = 'draft' | 'idle' | 'needs-input' | 'unread' | 'working'
 
 export const sessionStatusBucket = (state: SessionDotState = 'idle'): SessionStatusBucket =>
-  state === 'stalled' || state === 'background' ? 'working' : state
+  state === 'stalled' || state === 'background' || state === 'delegating' ? 'working' : state
 
 const STATUS_RANK: Record<SessionStatusBucket, number> = {
   'needs-input': 0,
@@ -109,16 +174,58 @@ export const $sessionDotStateById = computed(
     $unreadFinishedSessionIds,
     $draftSessionIds,
     $sessions,
+    $messagingSessions,
+    $cronSessions,
+    $sessionStates,
     $unreadWriteGuard
   ],
-  (attention, working, stalled, background, delegating, unread, draft, sessions, unreadWriteGuard) => {
+  (
+    attention,
+    working,
+    stalled,
+    background,
+    delegating,
+    unread,
+    draft,
+    recent,
+    messaging,
+    cron,
+    states,
+    unreadWriteGuard
+  ) => {
+    const sessions = [...recent, ...messaging, ...cron]
     const next: Record<string, SessionDotState> = {}
 
+    const scopesByAlias = new Map<string, Set<string>>()
+    const qualifiedAliases = new Map<string, string[]>()
+    for (const row of sessions) {
+      const scope = backendScopeKey(row.connection_id, row.profile)
+      const family = sessions.filter(r => backendScopeKey(r.connection_id, r.profile) === scope)
+      const aliases = lineageAliases(row.id, family)
+      const keys = aliases.map(id => sessionActivityKey({ ...row, id }))
+      for (const alias of aliases) {
+        const scopes = scopesByAlias.get(alias) ?? new Set<string>()
+        scopes.add(scope)
+        scopesByAlias.set(alias, scopes)
+        qualifiedAliases.set(sessionActivityKey({ ...row, id: alias }), keys)
+      }
+    }
+    const claimAliases = (id: string): string[] => {
+      const qualified = qualifiedAliases.get(id)
+      if (qualified) return qualified
+      const scopes = scopesByAlias.get(id)
+      if (!scopes) return [id]
+      if (scopes.size !== 1) return []
+      const scope = [...scopes][0]
+      const family = sessions.filter(r => backendScopeKey(r.connection_id, r.profile) === scope)
+      return lineageAliases(id, family).flatMap(alias => [
+        `${scope}::${alias}`,
+        ...(scopesByAlias.get(alias)?.size === 1 ? [alias] : [])
+      ])
+    }
     const claim = (ids: readonly string[], state: SessionDotState) => {
       for (const id of ids) {
-        for (const alias of lineageAliases(id, sessions)) {
-          next[alias] = state
-        }
+        for (const alias of claimAliases(id)) next[alias] = state
       }
     }
 
@@ -159,26 +266,59 @@ export const $sessionDotStateById = computed(
 
     claim(background, 'background')
     // Async delegation: the parent turn has ended but its subagents are still
-    // running, so the session's work continues in child sessions. Same visual
-    // claim as background processes — and it yields to `working` below the
-    // moment the parent turn itself is live (synchronous orchestrator children).
-    claim(delegating, 'background')
-    claim(working, 'working')
+    // running, so paint real agent work, not a quiet terminal process. This
+    // claim yields to `working` the moment the parent turn itself is live.
+    claim(delegating, 'delegating')
+    // Loaded live turns are resolved below from their runtime owner, not the
+    // already lineage-expanded, connection-blind compatibility sets.
+    claim(working.filter(id => !scopesByAlias.has(id)), 'working')
 
     // Stalled REFINES working rather than rivalling it — the turn is still
     // authoritatively running, it has just gone quiet — so it only downgrades a
     // session already claimed as working. The hint outlives its turn by a tick
     // on some paths; without this it could invent a running session.
     for (const id of stalled) {
-      for (const alias of lineageAliases(id, sessions)) {
+      for (const alias of claimAliases(id)) {
         if (next[alias] === 'working') {
           next[alias] = 'stalled'
         }
       }
     }
 
-    claim(attention, 'needs-input')
+    claim(attention.filter(id => !scopesByAlias.has(id)), 'needs-input')
 
+    // Publish row-qualified answers; bare keys remain only a compatibility
+    // lookup for identities that cannot collide. Live owner proof wins over
+    // the connection-blind legacy membership sets.
+    for (const row of sessions) {
+      const aliases = lineageAliases(
+        row.id,
+        sessions.filter(
+          r => backendScopeKey(r.connection_id, r.profile) === backendScopeKey(row.connection_id, row.profile)
+        )
+      )
+      const scopedKey = sessionActivityKey(row)
+      for (const [runtimeId, runtime] of Object.entries(states)) {
+        if (!runtime.storedSessionId || !aliases.includes(runtime.storedSessionId)) continue
+        const owner = runtimeSessionOwner(runtimeId)
+        const scope =
+          typeof owner === 'string'
+            ? backendScopeKey(null, owner)
+            : owner
+              ? backendScopeKey(owner.connectionId, owner.profile)
+              : null
+        if (scope && scope !== backendScopeKey(row.connection_id, row.profile)) continue
+        if (!scope && scopesByAlias.get(runtime.storedSessionId)?.size !== 1) continue
+        if (runtime.busy) next[scopedKey] = stalled.some(id => aliases.includes(id)) ? 'stalled' : 'working'
+        if (runtime.needsInput) next[scopedKey] = 'needs-input'
+      }
+      if (next[scopedKey]) {
+        for (const alias of aliases) {
+          next[sessionActivityKey({ ...row, id: alias })] = next[scopedKey]
+          if (scopesByAlias.get(alias)?.size === 1) next[alias] = next[scopedKey]
+        }
+      }
+    }
     return (dotStates = stableRecord(dotStates, next))
   }
 )

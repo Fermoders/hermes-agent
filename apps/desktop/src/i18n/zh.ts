@@ -4,6 +4,7 @@ import { defineLocale } from './define-locale'
 import { introZh } from './intro-zh'
 
 export const zh = defineLocale({
+  tokenStats: { title: 'Token 用量', read: '读取', cacheRead: '缓存读取', cacheWrite: '缓存写入', output: '输出', rate: 'tok/s', agents: '代理调用', partial: '无数据：', task: '任务', session: '会话', response: '回复', unavailable: 'Token 用量不可用', newTask: '开始新任务', rateHint: '输出 / API 秒数（包括首个 token 等待和并行代理，不包括工具等待）。' },
   externalOpenFailed: {
     title: '无法打开此链接',
     message: '没有注册用于打开此地址的浏览器。请复制链接并手动打开。',

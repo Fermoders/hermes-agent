@@ -971,12 +971,21 @@ Subscriptions persist to `~/.hermes/webhook_subscriptions.json` and are hot-relo
 ## `hermes doctor`
 
 ```bash
-hermes doctor [--fix]
+hermes doctor [--fix] [--result-json PATH]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--fix` | Attempt automatic repairs where possible. |
+| `--result-json PATH` | Write a completed-diagnostics JSON result to a new file after checks and the human report finish. Existing paths are refused. Human stdout/stderr remain unchanged. |
+
+The version-1 result contains `schema_version: 1`, `command: "doctor"`,
+`completed: true`, `exit_code` (0 or 1), `issues` and `manual_issues` arrays,
+and `fixed` (number of applied repairs). Uncaught exceptions, report failures,
+and `--ack` do not produce a completed result. Consumers must use a fresh path,
+validate the schema and compare `exit_code` with process status; exit 1 alone
+can also mean a Python crash. Treat missing, incomplete or invalid JSON as a
+failed diagnostic run. The option itself performs no repairs.
 
 Exit status: `0` when the report lists no unresolved problems, `1` when at least one remains (including problems `--fix` could not repair), so a health gate or CI step can trust `hermes doctor` as a check.
 

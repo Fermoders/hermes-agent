@@ -84,6 +84,8 @@ def record_response_usage(
     # must remain observable.
     agent.session_api_calls += 1
     if not (hasattr(response, 'usage') and response.usage):
+        from agent.chat_token_stats import record_call
+        record_call(agent, None, api_duration)
         if getattr(compressor, "awaiting_real_usage_after_compression", False):
             # No usage -> cannot adjudicate the prior compaction; consume the
             # pending verdict so later readings aren't charged to it and
@@ -156,6 +158,8 @@ def record_response_usage(
 
     # Stash canonical usage for on_turn_complete(); keep the latest call's.
     agent._last_turn_usage = dict(usage_dict)
+    from agent.chat_token_stats import record_call, display_usage
+    record_call(agent, display_usage(usage_dict, response.usage, provider=agent.provider, api_mode=agent.api_mode), api_duration)
     # The parent's CURRENT prompt size for headroom math (delegate summary budgets): the
     # aggregator's own prompt, never the MoA-folded total (advisor prompts are not in this context).
     agent._last_prompt_size_tokens = int(aggregator_usage.prompt_tokens or 0)

@@ -159,6 +159,8 @@ def _record_codex_app_server_usage(agent, turn, messages=None) -> dict[str, Any]
     def billing(**extra):
         return dict(model=agent.model, billing_provider=agent.provider, billing_base_url=agent.base_url, api_call_count=1, **extra)
     if not isinstance(usage, dict) or not usage:
+        from agent.chat_token_stats import record_call
+        record_call(agent, None, None)
         if compressor is not None and getattr(compressor, "awaiting_real_usage_after_compression", False):
             # No usage cannot adjudicate the pending compaction; unlatch preflight deferral.
             compressor.update_from_response({})
@@ -184,6 +186,18 @@ def _record_codex_app_server_usage(agent, turn, messages=None) -> dict[str, Any]
                     ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens")}
     usage_dict = {"prompt_tokens": prompt_tokens, "completion_tokens": canonical_usage.output_tokens,
                   "total_tokens": total_tokens, **token_counts}
+    from agent.chat_token_stats import record_call
+    # Canonical billing counters retain their numeric contract; display-only
+    # telemetry must preserve absent fields instead of manufacturing zeros.
+    reported_input = usage.get("inputTokens")
+    reported_cache = usage.get("cachedInputTokens")
+    record_call(agent, {
+        "input_tokens": max(0, _coerce_usage_int(reported_input) - _coerce_usage_int(reported_cache))
+        if reported_input is not None and reported_cache is not None else None,
+        "output_tokens": _coerce_usage_int(usage["outputTokens"]) if usage.get("outputTokens") is not None else None,
+        "cache_read_tokens": _coerce_usage_int(reported_cache) if reported_cache is not None else None,
+        "cache_write_tokens": None,
+    }, None)
     if compressor is not None:
         try:
             compressor.update_from_response(usage_dict)

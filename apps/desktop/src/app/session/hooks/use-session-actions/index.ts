@@ -84,6 +84,7 @@ import {
   type NewChatWorkspaceTarget,
   resolveComposerSessionKey,
   rotateFreshDraftKey,
+  reconcileSessionDescendantActivity,
   sessionPinId,
   setActiveSessionId,
   setActiveSessionStoredIdRotation,
@@ -1512,6 +1513,7 @@ export function useSessionActions({
                 : false
 
               const runtimeInfo = applyRuntimeInfo(activated.info)
+              reconcileSessionDescendantActivity(storedSessionId, activated.info?.active_descendant_count)
 
               // `omit_messages` means the response carries NO transcript, not
               // an empty one — the cache is the base and the live projection is
@@ -2217,6 +2219,7 @@ export function useSessionActions({
           pendingClarifyState.authoritativeAbsent && !$clarifyRequests.get()[resumed.session_id]
 
         const runtimeInfo = applyRuntimeInfo(resumed.info)
+        reconcileSessionDescendantActivity(storedSessionId, resumed.info?.active_descendant_count)
 
         patchSessionWorkspace(storedSessionId, runtimeInfo?.cwd)
 

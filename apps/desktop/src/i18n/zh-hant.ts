@@ -4,6 +4,7 @@ import { defineLocale } from './define-locale'
 import { introZhHant } from './intro-zh-hant'
 
 export const zhHant = defineLocale({
+  tokenStats: { title: 'Token 用量', read: '讀取', cacheRead: '快取讀取', cacheWrite: '快取寫入', output: '輸出', rate: 'tok/s', agents: '代理呼叫', partial: '無資料：', task: '任務', session: '工作階段', response: '回覆', unavailable: 'Token 用量無法取得', newTask: '開始新任務', rateHint: '輸出 / API 秒數（包括首個 token 等待與平行代理，不包括工具等待）。' },
   externalOpenFailed: {
     title: '無法開啟此連結',
     message: '沒有註冊用於開啟此位址的瀏覽器。請複製連結並手動開啟。',

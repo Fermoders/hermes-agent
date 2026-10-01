@@ -1,6 +1,7 @@
 import { atom } from 'nanostores'
 
 import { capitalize } from '@/lib/text'
+import { observeSessionActivity } from './session-activity-observation'
 
 export type SubagentStatus = 'completed' | 'failed' | 'interrupted' | 'queued' | 'running'
 export type SubagentStreamKind = 'progress' | 'summary' | 'thinking' | 'tool'
@@ -71,6 +72,7 @@ function setSessionSubagents(sid: string, previous: SubagentProgress[], next: Su
     retiredSubagents.set(next, retired)
   }
 
+  observeSessionActivity(next)
   $subagentsBySession.set({ ...$subagentsBySession.get(), [sid]: next })
 }
 
@@ -313,9 +315,10 @@ export function reconcileSubagentSnapshot(
     })
   }
 
-  if (next.length !== previous.length || next.some((item, index) => item !== previous[index])) {
-    setSessionSubagents(sid, previous, next)
-  }
+  // Even an unchanged/empty roster is a new authoritative observation, but
+  // display consumers retain their array identity on a content no-op.
+  const changed = next.length !== previous.length || next.some((item, index) => item !== previous[index])
+  setSessionSubagents(sid, previous, changed ? next : previous)
 }
 
 export function clearSessionSubagents(sid: string) {

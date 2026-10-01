@@ -1,6 +1,7 @@
 import { defineLocale } from './define-locale'
 
 export const ar = defineLocale({
+  tokenStats: { title: 'استخدام الرموز', read: 'قراءة', cacheRead: 'قراءة التخزين المؤقت', cacheWrite: 'كتابة التخزين المؤقت', output: 'إخراج', rate: 'رمز/ث', agents: 'استدعاءات الوكلاء', partial: 'بلا بيانات:', task: 'مهمة', session: 'جلسة', response: 'رد', unavailable: 'استخدام الرموز غير متاح', newTask: 'بدء مهمة جديدة', rateHint: 'الإخراج / ثواني API (يشمل انتظار أول رمز والوكلاء المتوازيين؛ يستثني انتظار الأدوات).' },
   sharedMetrics: {
     consentTitle: 'هل تساعد في تحسين Hermes؟',
     consentBody:

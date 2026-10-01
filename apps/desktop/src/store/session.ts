@@ -1,4 +1,9 @@
-import type { ConnectionState } from '@hermes/shared'
+import { backendScopeKey, type ConnectionState } from '@hermes/shared'
+import {
+  $sessionActivityObservationEpoch,
+  observeSessionActivity,
+  sessionActivityObservation
+} from './session-activity-observation'
 import { atom, computed } from 'nanostores'
 
 import { setApiRequestLocalMode } from '@/api/client'
@@ -1481,6 +1486,60 @@ export const setConnection = (next: Updater<HermesConnection | null>) => {
 }
 
 export const setGatewayState = (next: Updater<ConnectionState>) => updateAtom($gatewayState, next)
+export const sessionActivityKey = (row: Pick<SessionInfo, 'id' | 'profile' | 'connection_id'>): string =>
+  `${backendScopeKey(row.connection_id, row.profile)}::${row.id}`
+
+// Stamp at publication, not lazily at render: roster and row observations use
+// one monotonic clock even when no sidebar is mounted. Retained rows keep age.
+for (const store of [$sessions, $messagingSessions, $cronSessions]) {
+  store.listen(rows => {
+    for (const row of rows) {
+      if (!sessionActivityObservation(row)) observeSessionActivity(row)
+    }
+  })
+}
+
+export function observeSessionActivityPage(incoming: SessionInfo[]) {
+  const loaded = [...$sessions.get(), ...$messagingSessions.get(), ...$cronSessions.get()]
+  for (const row of incoming) {
+    if (typeof row.active_descendant_count !== 'number') continue
+    for (const cached of loaded) {
+      if (
+        sessionActivityKey(cached) === sessionActivityKey(row) &&
+        cached.active_descendant_count === row.active_descendant_count
+      ) {
+        observeSessionActivity(cached)
+      }
+    }
+  }
+  $sessionActivityObservationEpoch.set($sessionActivityObservationEpoch.get() + 1)
+}
+
+export function reconcileSessionDescendantActivity(
+  storedId: string,
+  count: number | undefined,
+  scope?: { connectionId?: null | string; profile?: null | string }
+) {
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) return
+  const all = [...$sessions.get(), ...$messagingSessions.get(), ...$cronSessions.get()]
+  const candidates = all.filter(row => sessionMatchesStoredId(row, storedId))
+  const scopes = new Set(candidates.map(row => backendScopeKey(row.connection_id, row.profile)))
+  // Legacy untagged events may resolve only an unambiguous conversation.
+  const owner = scope ? backendScopeKey(scope.connectionId, scope.profile) : scopes.size === 1 ? [...scopes][0] : null
+  if (!owner) return
+  const patch = (rows: SessionInfo[]) =>
+    rows.map(row => {
+      if (!sessionMatchesStoredId(row, storedId) || backendScopeKey(row.connection_id, row.profile) !== owner)
+        return row
+      const next = { ...row, active_descendant_count: count }
+      observeSessionActivity(next)
+      return next
+    })
+  updateAtom($sessions, patch)
+  updateAtom($messagingSessions, patch)
+  updateAtom($cronSessions, patch)
+}
+
 export const setSessions = (next: Updater<SessionInfo[]>) => updateAtom($sessions, next)
 export const setUnlistedSessionOwnerRows = (next: Updater<SessionInfo[]>) => updateAtom($unlistedSessionOwnerRows, next)
 export const setCronSessions = (next: Updater<SessionInfo[]>) => updateAtom($cronSessions, next)

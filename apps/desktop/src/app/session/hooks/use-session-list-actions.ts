@@ -27,6 +27,7 @@ import {
   CRON_SECTION_LIMIT,
   keepFailedProfileMeta,
   mergeSessionPage,
+  observeSessionActivityPage,
   MESSAGING_SECTION_LIMIT,
   messagingListServerForFetch,
   setCorruptSessionStores,
@@ -396,6 +397,11 @@ export function useSessionListActions({ profileScope }: UseSessionListActionsArg
         }
 
         if (owns()) {
+          observeSessionActivityPage([
+            ...(result.recents.sessions ?? []),
+            ...(result.cron.sessions ?? []),
+            ...(result.messaging.sessions ?? [])
+          ])
           const recents = result.recents
           const recentsErrors = recents.errors ?? result.errors
 

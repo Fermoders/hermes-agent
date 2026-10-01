@@ -796,6 +796,8 @@ def _invoke_agent(
     agent._on_session_title = lambda t, _src, _k=_title_key: _emit(
         "session.title", sid, {"session_id": _k, "title": t})
     _usage_stop, _usage_thread = _start_usage_ticker(sid, agent)
+    from agent.chat_token_stats import begin_response
+    begin_response(agent)
     try:
         from agent.notification_presentation import notification_turn, event_presentation_muted
         with notification_turn(agent, muted=event_presentation_muted("message.delta", sid), session_id=sid):
@@ -938,6 +940,9 @@ def _complete_turn_payload(session: dict, st: _TurnRun, status_note: str | None,
     payload = {"text": raw, "usage": _get_usage(agent), "status": status}
     if receipt := _persisted_turn_receipt(st, raw, status):
         payload["persisted_turn"] = receipt
+        from agent.chat_token_stats import finish_response
+        finish_response(agent, receipt.get("final_assistant_row_id"))
+        payload["usage"] = _get_usage(agent)
     if last_reasoning:
         payload["reasoning"] = last_reasoning
     if status_note:
