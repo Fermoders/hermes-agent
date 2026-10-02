@@ -5,6 +5,7 @@ provider-specific work lives in build_kwargs (max_tokens, reasoning, extra_body)
 """
 
 import json
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
@@ -366,6 +367,10 @@ def _base_kwargs(model: str, sanitized: list, tools: Any, params: dict, profile:
 
 def _finish_kwargs(api_kwargs: dict[str, Any], sanitized: list, params: dict, *, supports_prompt_cache_key: bool) -> dict[str, Any]:
     """Tail shared by both build paths: content-addressed prompt_cache_key, then return."""
+    # Cache-key bounding must not mutate caller-owned mappings, including plain dicts.
+    extra_body = api_kwargs.get("extra_body")
+    if isinstance(extra_body, Mapping):
+        api_kwargs["extra_body"] = dict(extra_body)
     _add_prompt_cache_key(
         api_kwargs, messages=sanitized, tools=api_kwargs.get("tools"), supports_prompt_cache_key=supports_prompt_cache_key,
         session_id=params.get("session_id"), cache_scope_id=params.get("cache_scope_id"),
@@ -577,7 +582,7 @@ class ChatCompletionsTransport(ProviderTransport):
             if part:
                 extra_body.update(part)
         for k, v in (params.get("request_overrides") or {}).items():
-            if k == "extra_body" and isinstance(v, dict):
+            if k == "extra_body" and isinstance(v, Mapping):
                 extra_body.update(v)
             else:
                 api_kwargs[k] = v

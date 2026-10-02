@@ -775,14 +775,14 @@ class TestGetModelContextLengthLocalFallback:
 
 
     def test_cached_result_skips_local_query(self):
-        """Cached context length is returned without querying the local server."""
+        """A known vendor's cached context never invokes the local-server probe."""
         from agent.model_metadata import get_model_context_length
 
         with patch("agent.model_metadata.get_cached_context_length", return_value=65536), \
              patch("agent.model_metadata.is_local_endpoint", return_value=False), \
              patch("agent.model_metadata._query_local_context_length") as mock_query:
             result = get_model_context_length(
-                "omnicoder-9b", "https://api.example.com/v1"
+                "omnicoder-9b", "https://api.openai.com/v1"
             )
 
         assert result == 65536

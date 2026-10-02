@@ -2303,7 +2303,14 @@ def _fast_tier_applies(agent, model: str, provider: str, *, route_known: bool, t
             base_url = getattr(agent, "_anthropic_base_url", None)
         base_url = base_url or getattr(agent, "base_url", None)
     try:
-        return resolve_fast_mode_overrides(model, provider=provider or None, base_url=base_url, tier=tier) is not None
+        identity = provider
+        if route_known and agent is not None and provider in {"", "custom"}:
+            identity = getattr(agent, "requested_provider", None) or provider
+        return resolve_fast_mode_overrides(
+            model, provider=identity or None, base_url=base_url, tier=tier,
+            api_key=getattr(agent, "api_key", None) if route_known else None,
+            api_mode=getattr(agent, "api_mode", None) if route_known else None,
+        ) is not None
     except Exception:
         return False
 

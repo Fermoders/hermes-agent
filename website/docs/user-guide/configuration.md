@@ -1998,6 +1998,24 @@ providers:
 
 Differences from `agent.service_tier`: the tier is always on for that provider (no `auto`/`cold` window), `/fast` does not toggle it, and Hermes does not validate the value — the gateway decides what it accepts and what it bills.
 
+#### Maintained custom build: session-controlled proxy priority
+
+The maintained custom build can opt a **named Chat Completions provider** into session-controlled
+priority with `providers.<name>.capabilities.allow_paid_priority: true`. This is explicit consent to
+the proxy's paid tier, not a first-party price guarantee. It remains off for every other provider.
+After opting in, `/fast fast`, `/fast normal`, and the `auto`/`cold` windows use `service_tier: priority`
+only when the actual runtime credential's `/models` catalog advertises `priority` for the exact model ID.
+Missing or malformed metadata, another provider or credential, generated bare aliases, and
+`ultrafast` do not qualify. Catalog decisions use the credential-scoped five-minute metadata memo.
+
+```bash
+hermes config set providers.my-gateway.capabilities.allow_paid_priority true
+```
+
+Do not also pin `extra_body.service_tier` when using this switch: the explicit always-on override
+retains its original semantics and is not controlled by `/fast normal`. No system prompt, tools,
+or stored messages are rewritten when the session tier changes.
+
 ## Tool-Use Enforcement
 
 Some models occasionally describe intended actions as text instead of making tool calls ("I would run the tests..." instead of actually calling the terminal). Tool-use enforcement injects system prompt guidance that steers the model back to actually calling tools.

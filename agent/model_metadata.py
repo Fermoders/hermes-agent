@@ -64,7 +64,7 @@ _model_metadata_cache: Dict[str, Dict[str, Any]] = {}
 _model_metadata_cache_time: float = 0
 _MODEL_CACHE_TTL = 3600
 # In-memory memo keyed by (base_url, api-key fingerprint): per-key gateways return a per-key catalog, and
-# in a multiplexed process two profiles may share a URL with different keys. The disk memo stays per URL.
+# in a multiplexed process two profiles may share a URL with different keys. Disk uses the same identity.
 _endpoint_model_metadata_cache: Dict[Tuple[str, str], Dict[str, Dict[str, Any]]] = {}
 _endpoint_model_metadata_cache_time: Dict[Tuple[str, str], float] = {}
 _ENDPOINT_MODEL_CACHE_TTL = 300
@@ -234,19 +234,40 @@ def _get_endpoint_metadata_cache_path() -> Path:
     return _cache_file("endpoint_model_metadata.json")
 
 
-def _endpoint_disk_cache_get(normalized: str) -> Optional[Dict[str, Dict[str, Any]]]:
-    """Fresh cross-process memo of a remote ``/models`` probe (same TTL as in-memory): one-shot
-    runs (``hermes -q``, cron) start cold and Nous bypasses the persistent context cache, so
-    without this every launch paid the live probe. Local endpoints are never memoized."""
-    models = _ttl_memo_get(_get_endpoint_metadata_cache_path(), normalized, _ENDPOINT_MODEL_CACHE_TTL, ts_key="at", value_key="models")
-    return models if isinstance(models, dict) else None
+def _endpoint_cache_fresh(fetched_at: Any) -> bool:
+    """Missing, malformed or future timestamps cannot establish catalog freshness."""
+    if type(fetched_at) not in (int, float):
+        return False
+    now = time.time()
+    # Comparing bounds avoids float conversion of arbitrary-size JSON integers.
+    return now - _ENDPOINT_MODEL_CACHE_TTL < fetched_at <= now
 
 
-def _endpoint_disk_cache_put(normalized: str, cache: Dict[str, Dict[str, Any]]) -> None:
-    """Memoize a successful remote ``/models`` probe; expired siblings are dropped."""
-    _ttl_memo_put(
-        _get_endpoint_metadata_cache_path(), normalized, cache, _ENDPOINT_MODEL_CACHE_TTL,
-        ts_key="at", value_key="models", what="endpoint model metadata disk cache", ts_first=True)
+def _endpoint_disk_cache_get(memo_key: Tuple[str, str]) -> Optional[Tuple[Dict[str, Dict[str, Any]], float]]:
+    """Fresh cross-process catalog and its original fetch time, never a renewed TTL.
+
+    One-shot runs start cold; without this memo every launch paid the live probe.
+    Local endpoints are never memoized.
+    """
+    # Legacy URL-only entries cannot establish which credential's catalog they contain.
+    key = json.dumps(memo_key, separators=(",", ":"))
+    entry = _load_json_dict(_get_endpoint_metadata_cache_path()).get(key)
+    if not isinstance(entry, dict) or not _endpoint_cache_fresh(entry.get("at")):
+        return None
+    models = entry.get("models")
+    return (models, entry["at"]) if isinstance(models, dict) else None
+
+
+def _endpoint_disk_cache_put(memo_key: Tuple[str, str], cache: Dict[str, Dict[str, Any]]) -> None:
+    """Replace this credential's catalog, even if an unrelated row is malformed."""
+    path = _get_endpoint_metadata_cache_path()
+    try:
+        data = {key: row for key, row in _load_json_dict(path).items()
+                if isinstance(row, dict) and _endpoint_cache_fresh(row.get("at"))}
+        data[json.dumps(memo_key, separators=(",", ":"))] = {"at": time.time(), "models": cache}
+        atomic_json_write(path, data, indent=0, separators=(",", ":"))
+    except Exception as exc:
+        logger.debug("Failed to save endpoint model metadata disk cache: %s", exc)
 
 
 # Descending probe tiers for unknown models; tier[0] is also the default fallback.
@@ -941,7 +962,11 @@ def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any
 def _endpoint_model_entry(model: Dict[str, Any], model_id: str, context_length: Optional[int]) -> Dict[str, Any]:
     """Cache entry for one ``/models`` item; optional keys are set only when known."""
     optional = (("context_length", context_length), ("max_completion_tokens", _extract_first_int(model, _MAX_COMPLETION_KEYS)), ("pricing", _extract_pricing(model) or None))
-    return {"name": model.get("name", model_id), **{k: v for k, v in optional if v is not None}}
+    entry = {"id": model_id, "name": model.get("name", model_id), **{k: v for k, v in optional if v is not None}}
+    tiers = model.get("service_tiers")
+    if isinstance(tiers, list) and all(isinstance(tier, str) for tier in tiers):
+        entry["service_tiers"] = list(tiers)
+    return entry
 
 
 def _lmstudio_loaded_context(model: Dict[str, Any]) -> Optional[int]:
@@ -1003,15 +1028,21 @@ def _apply_llamacpp_props(cache: Dict[str, Dict[str, Any]], request_candidate: s
             cache[child_id]["context_length"] = child_ctx
 
 
-def _endpoint_memo_key(normalized: str, api_key: object) -> Tuple[str, str]:
+def _endpoint_memo_key(normalized: str, api_key: object) -> Optional[Tuple[str, str]]:
     from agent.credential_persistence import fingerprint_secret_value
-    # Callable (minted) keys are not fingerprinted here: doing so would mint on every cache hit.
-    return normalized, (fingerprint_secret_value(api_key) or "") if isinstance(api_key, str) else ""
+    # A callable's command/object identity does not bind its current principal. Without a
+    # credential identity, bypass both memo layers; never mint solely for a cache lookup.
+    if not isinstance(api_key, str):
+        return None
+    return normalized, fingerprint_secret_value(api_key) or ""
 
 
-def _remember_endpoint_models(memo_key: Tuple[str, str], cache: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    _endpoint_model_metadata_cache[memo_key] = cache
-    _endpoint_model_metadata_cache_time[memo_key] = time.time()
+def _remember_endpoint_models(
+    memo_key: Optional[Tuple[str, str]], cache: Dict[str, Dict[str, Any]], *, fetched_at: Optional[float] = None,
+) -> Dict[str, Dict[str, Any]]:
+    if memo_key is not None:
+        _endpoint_model_metadata_cache[memo_key] = cache
+        _endpoint_model_metadata_cache_time[memo_key] = time.time() if fetched_at is None else fetched_at
     return cache
 
 
@@ -1024,20 +1055,21 @@ def _parse_models_payload(payload: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return cache
 
 
-def fetch_endpoint_model_metadata(base_url: str, api_key: str = "", force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
-    """Model metadata from an OpenAI-compatible ``/models`` endpoint (cached per base URL)."""
+def fetch_endpoint_model_metadata(base_url: str, api_key: object = "", force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+    """Model metadata from ``/models``; memoize only identifiable credentials."""
     normalized = _normalize_base_url(base_url)
     if not normalized or base_url_host_matches(normalized, "openrouter.ai"):
         return {}
     local = is_local_endpoint(normalized)
     memo_key = _endpoint_memo_key(normalized, api_key)
-    if not force_refresh:
+    if not force_refresh and memo_key is not None:
         cached = _endpoint_model_metadata_cache.get(memo_key)
-        if cached is not None and (time.time() - _endpoint_model_metadata_cache_time.get(memo_key, 0)) < _ENDPOINT_MODEL_CACHE_TTL:
+        if cached is not None and _endpoint_cache_fresh(_endpoint_model_metadata_cache_time.get(memo_key)):
             return cached
-        memo = _endpoint_disk_cache_get(normalized) if not local else None
+        memo = _endpoint_disk_cache_get(memo_key) if not local else None
         if memo is not None:
-            return _remember_endpoint_models(memo_key, memo)
+            cache, fetched_at = memo
+            return _remember_endpoint_models(memo_key, cache, fetched_at=fetched_at)
     # Blackholed: return empty WITHOUT caching so it is retried once the entry expires.
     if _endpoint_blackholed(normalized):
         return {}
@@ -1064,7 +1096,9 @@ def fetch_endpoint_model_metadata(base_url: str, api_key: str = "", force_refres
             with model_metadata_http.stream(url, headers=headers, timeout=(5, 10), verify=verify) as response:
                 if response.status_code in (401, 403):
                     logger.debug("Model metadata probe received HTTP %s from %s; stopping candidate probing", response.status_code, url)
-                    break
+                    if not local and memo_key is not None:
+                        _endpoint_disk_cache_put(memo_key, {})
+                    return _remember_endpoint_models(memo_key, {})
                 response.raise_for_status()
                 response.read()
                 payload = response.json()
@@ -1072,8 +1106,8 @@ def fetch_endpoint_model_metadata(base_url: str, api_key: str = "", force_refres
             if any(m.get("owned_by") == "llamacpp" for m in payload.get("data", []) if isinstance(m, dict)):
                 with contextlib.suppress(Exception):
                     _apply_llamacpp_props(cache, request_candidate, headers, verify)
-            if cache and not local:
-                _endpoint_disk_cache_put(normalized, cache)
+            if not local and memo_key is not None:
+                _endpoint_disk_cache_put(memo_key, cache)
             return _remember_endpoint_models(memo_key, cache)
         except Exception as exc:
             last_error = exc
@@ -2251,8 +2285,14 @@ def get_model_context_length(
     # (HERMES_CODEX_BASE_URL, model.base_url, custom api_mode: codex_responses) the URL looks
     # generic while the window is still the Codex OAuth one (#116191).
     codex_route = _is_codex_route(provider, base_url, custom_providers)
-    # 1. Persistent cache (LM Studio / Codex routes excluded — see _skip_persistent_context_cache).
-    cached = get_cached_context_length(model, base_url) if base_url and not is_bedrock_context and not codex_route and not _skip_persistent_context_cache(base_url, provider) else None
+    # Remote custom catalogs can vary by credential and policy. Their bounded /models memo is
+    # scoped to the actual key; the legacy eternal model@URL scalar has no such provenance.
+    remote_custom_catalog = (
+        _is_custom_endpoint(base_url) and not is_local_endpoint(base_url)
+        and not _is_known_provider_base_url(base_url)
+    )
+    # 1. Persistent cache (local/vendor reconciliations retain their existing behavior).
+    cached = get_cached_context_length(model, base_url) if base_url and not is_bedrock_context and not codex_route and not remote_custom_catalog and not _skip_persistent_context_cache(base_url, provider) else None
     validated = _validate_cached_context_length(model, base_url, cached, api_key=api_key) if cached is not None else None
     if validated is not None:
         return validated

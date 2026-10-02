@@ -192,9 +192,13 @@ def _set_fast(rid, params, key, value, session):
             target_model = (isinstance(session_override, dict) and session_override.get("model")) or _resolve_model()
         if not target_model:
             return _err(rid, 4002, "fast mode is not available without a selected model")
-        overrides = resolve_fast_mode_overrides(target_model, provider=getattr(agent, "provider", None),
+        overrides = resolve_fast_mode_overrides(target_model,
+                                                provider=(getattr(agent, "requested_provider", None) or getattr(agent, "provider", None))
+                                                if getattr(agent, "provider", None) == "custom" else getattr(agent, "provider", None),
                                                 base_url=getattr(agent, "base_url", None),
-                                                tier="ultrafast" if nv == "ultrafast" else None)
+                                                tier="ultrafast" if nv == "ultrafast" else None,
+                                                api_key=getattr(agent, "api_key", None),
+                                                api_mode=getattr(agent, "api_mode", None))
         if overrides is None:
             return _err(rid, 4002, f"{nv} mode is not available for this model")
     if session is not None:

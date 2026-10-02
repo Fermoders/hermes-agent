@@ -6,6 +6,7 @@ Extracted from ``hermes_cli.web_server``; helpers/state that tests monkeypatch o
 
 import asyncio
 import concurrent.futures
+import contextvars
 import logging
 from typing import Optional
 
@@ -59,7 +60,7 @@ def _load_config_scoped(profile: Optional[str]) -> dict:
 _MODEL_INFO_PROBE_BUDGET_S = 5.0
 
 
-def _bounded_context_length_probe(model: str, base_url: str, provider: str) -> int:
+def _bounded_context_length_probe(model: str, base_url: str, provider: str, profile: Optional[str] = None) -> int:
     """``get_model_context_length`` with the route's blocking budget.
 
     On timeout the abandoned probe keeps running in its worker thread (bounded
@@ -68,12 +69,22 @@ def _bounded_context_length_probe(model: str, base_url: str, provider: str) -> i
     """
     from agent.model_metadata import get_model_context_length
 
+    def probe():
+        # The worker must carry home AND secret scope. Configured names do not identify the
+        # actual endpoint or account; resolve the same runtime that a new chat will use.
+        with _config_profile_scope(profile):
+            from hermes_cli.runtime_provider import resolve_runtime_provider
+
+            runtime = resolve_runtime_provider(requested=provider or None, target_model=model)
+            return get_model_context_length(
+                model=model, base_url=runtime.get("base_url") or base_url,
+                api_key=runtime.get("api_key") or "", provider=runtime.get("provider") or provider,
+                config_context_length=None,
+            )
+
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="model-info-probe")
     try:
-        return pool.submit(
-            get_model_context_length, model=model, base_url=base_url, provider=provider,
-            config_context_length=None
-        ).result(timeout=_MODEL_INFO_PROBE_BUDGET_S)
+        return pool.submit(contextvars.copy_context().run, probe).result(timeout=_MODEL_INFO_PROBE_BUDGET_S)
     except concurrent.futures.TimeoutError:
         _log.warning(
             "GET /api/model/info: context-length probe for %r at %s exceeded %.1fs — returning unknown",
@@ -104,7 +115,7 @@ def get_model_info(profile: Optional[str] = None):
             # config_context_length=None: ignore the override — we want the auto value.
             # Bounded: the resolver's provider probes can hang for tens of seconds
             # when model.base_url is unreachable (#63214).
-            auto_ctx = _bounded_context_length_probe(model_name, base_url, provider)
+            auto_ctx = _bounded_context_length_probe(model_name, base_url, provider, profile)
         except Exception:
             auto_ctx = 0
 

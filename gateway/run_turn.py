@@ -336,7 +336,10 @@ class GatewayTurnMixin:
             return route
         try:
             overrides = resolve_fast_mode_overrides(
-                route["model"], provider=runtime["provider"], base_url=runtime["base_url"], tier=tier,
+                route["model"], provider=(runtime.get("requested_provider") or runtime["provider"])
+                if runtime["provider"] == "custom" else runtime["provider"],
+                base_url=runtime["base_url"], tier=tier, api_key=runtime.get("api_key"),
+                api_mode=runtime.get("api_mode"),
             )
         except Exception:
             overrides = None

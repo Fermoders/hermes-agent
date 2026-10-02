@@ -1200,17 +1200,21 @@ def model_supports_ultrafast(model_id: Optional[str]) -> bool:
 
 def resolve_fast_mode_overrides(
     model_id: Optional[str], *, provider: Optional[str] = None, base_url: Optional[str] = None,
-    tier: Optional[str] = None,
+    tier: Optional[str] = None, api_key: object = None, api_mode: Optional[str] = None,
 ) -> dict[str, Any] | None:
     """Fast/priority request_overrides — ``{"speed": "fast"}`` (Anthropic Fast Mode) or
     ``{"service_tier": "priority"}`` (OpenAI / xAI Priority Processing) — or None if unsupported.
     ``tier="ultrafast"`` asks for OpenAI Ultrafast instead: ``{"service_tier": "ultrafast"}`` on an
     Ultrafast model, None elsewhere (never a silent downgrade to a different paid tier).
-    With ``provider``/``base_url`` the route is gated too (``_fast_mode_route_supported``) so proxies
-    never see the params. Single fast-mode gate for ``/fast`` and ``agent.fast_mode`` windows."""
-    if not model_supports_fast_mode(model_id):
-        return None
+    Non-first-party routes stay off unless a named Chat Completions provider explicitly opts into
+    paid priority and its exact current-credential catalog advertises it. Ultrafast stays first-party.
+    Single fast-mode gate for ``/fast`` and ``agent.fast_mode`` windows."""
     if (provider or base_url) and not _fast_mode_route_supported(model_id, provider, base_url):
+        from hermes_cli.models_fast_custom import resolve_custom_priority_overrides
+        return resolve_custom_priority_overrides(
+            model_id, provider=provider, base_url=base_url, api_key=api_key, api_mode=api_mode, tier=tier,
+        )
+    if not model_supports_fast_mode(model_id):
         return None
     if tier == "ultrafast":
         return {"service_tier": "ultrafast"} if model_supports_ultrafast(model_id) else None

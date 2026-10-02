@@ -16,7 +16,14 @@ def _config(model: str, provider: str, base_url: str) -> dict:
     return {"model": {"default": model, "provider": provider, "base_url": base_url}}
 
 
+def _runtime(monkeypatch):
+    monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", lambda **kwargs: {
+        "provider": "custom-proxy", "base_url": "http://localhost:9/v1", "api_key": "fixture-key",
+    })
+
+
 def test_model_info_degrades_when_the_context_probe_exceeds_its_budget(monkeypatch):
+    _runtime(monkeypatch)
     from hermes_cli.web_routers import models as router
 
     monkeypatch.setattr(
@@ -46,6 +53,7 @@ def test_model_info_degrades_when_the_context_probe_exceeds_its_budget(monkeypat
 
 
 def test_model_info_surfaces_the_context_value_when_the_probe_is_fast(monkeypatch):
+    _runtime(monkeypatch)
     from hermes_cli.web_routers import models as router
 
     monkeypatch.setattr(

@@ -13,6 +13,7 @@ new speed.
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from typing import Any
 
 BOUNDED_MODES = frozenset({"auto", "cold"})
@@ -65,15 +66,48 @@ def effective_request_overrides(agent: Any) -> dict[str, Any]:
     """``agent.request_overrides`` plus the fast override while the window is open, minus
     ``speed`` for a model this session learned has no fast capacity."""
     overrides = dict(getattr(agent, "request_overrides", None) or {})
-    if getattr(agent, "service_tier", None) in BOUNDED_MODES and time.monotonic() < getattr(agent, "_fast_until", 0.0):
-        from hermes_cli.models import resolve_fast_mode_overrides
+    mode = getattr(agent, "service_tier", None)
+    model = getattr(agent, "model", None)
+    if mode in STATIC_TIERS or mode in BOUNDED_MODES:
+        # Revalidate session-generated fields after restore, switch, or fallback, even when
+        # a bounded window is closed. Explicit extra_body remains always-on configuration.
+        overrides.pop("service_tier", None)
+        overrides.pop("speed", None)
+        api_mode = getattr(agent, "api_mode", None)
+        if api_mode in ("chat_completions", "codex_responses"):
+            model = overrides.get("model", model)
+            if api_mode == "codex_responses":
+                from agent.model_metadata import strip_codex_context_variant_suffix
+
+                model = strip_codex_context_variant_suffix(model) if isinstance(model, str) else None
+            # Both OpenAI transports apply top-level overrides first; the SDK then merges
+            # extra_body into the JSON, overwriting model without normalizing its exact ID.
+            extra_body = overrides.get("extra_body")
+            if isinstance(extra_body, Mapping):
+                model = extra_body.get("model", model)
+        provider = getattr(agent, "provider", None)
+        if provider == "custom":
+            provider = getattr(agent, "requested_provider", None) or provider
         base_url = getattr(agent, "base_url", None)
-        if getattr(agent, "api_mode", None) == "anthropic_messages":
-            base_url = getattr(agent, "_anthropic_base_url", None) or base_url
-        overrides.update(
-            resolve_fast_mode_overrides(getattr(agent, "model", None), provider=getattr(agent, "provider", None), base_url=base_url) or {}
-        )
-    if "speed" in overrides and getattr(agent, "model", None) in (getattr(agent, "_fast_mode_unavailable_models", None) or ()):
+        if api_mode == "anthropic_messages":
+            # Native Anthropic ignores model overrides; None URL means the SDK default.
+            base_url = getattr(agent, "_anthropic_base_url", None)
+        window_open = mode in STATIC_TIERS or time.monotonic() < getattr(agent, "_fast_until", 0.0)
+        if window_open and isinstance(model, str) and model and api_mode in (
+            "chat_completions", "codex_responses", "anthropic_messages",
+        ):
+            from hermes_cli.models import resolve_fast_mode_overrides
+
+            fast = resolve_fast_mode_overrides(
+                model, provider=provider, base_url=base_url,
+                tier=mode if mode in STATIC_TIERS else "priority",
+                api_key=getattr(agent, "api_key", None), api_mode=api_mode,
+            ) or {}
+            # Native Messages consumes speed; OpenAI transports consume service_tier.
+            field = "speed" if api_mode == "anthropic_messages" else "service_tier"
+            if field in fast:
+                overrides[field] = fast[field]
+    if "speed" in overrides and model in (getattr(agent, "_fast_mode_unavailable_models", None) or ()):
         overrides.pop("speed", None)
     return overrides
 

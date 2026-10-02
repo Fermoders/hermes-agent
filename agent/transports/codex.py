@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any, Callable, Optional
 
 from agent.reasoning_effort import (
@@ -56,7 +57,7 @@ def _bound_prompt_cache_key_field(container: Any) -> None:
 def _merge_extra_headers(kwargs: dict[str, Any], **headers: str) -> None:
     """Merge ``headers`` into a str-coerced copy of ``kwargs['extra_headers']`` (SDK kwarg -> HTTP headers)."""
     existing = kwargs.get("extra_headers")
-    merged = {str(k): str(v) for k, v in existing.items() if k and v is not None} if isinstance(existing, dict) else {}
+    merged = {str(k): str(v) for k, v in existing.items() if k and v is not None} if isinstance(existing, Mapping) else {}
     merged.update(headers)
     kwargs["extra_headers"] = merged
 
@@ -754,6 +755,10 @@ class ResponsesApiTransport(ProviderTransport):
         if request_overrides:
             kwargs.update(request_overrides)
             kwargs["model"] = wire_model
+        # Own the SDK mappings before adding defaults/bounding keys; preflight accepts dicts.
+        for field in ("extra_body", "extra_headers"):
+            if isinstance(kwargs.get(field), Mapping):
+                kwargs[field] = dict(kwargs[field])
 
         # ``prompt_cache_options`` is not a Responses.create() kwarg in the OpenAI SDK, so a
         # top-level copy (e.g. from request_overrides) fails the call with TypeError before any
@@ -815,7 +820,7 @@ class ResponsesApiTransport(ProviderTransport):
             # read it back here so an explicit override actually governs the field xAI reads, instead of
             # being silently outrun by the auto-derived cache_key (#78941).
             existing_extra_body = kwargs.get("extra_body")
-            kwargs["extra_body"] = dict(existing_extra_body) if isinstance(existing_extra_body, dict) else {}
+            kwargs["extra_body"] = dict(existing_extra_body) if isinstance(existing_extra_body, Mapping) else {}
             kwargs["extra_body"].setdefault("prompt_cache_key", kwargs.get("prompt_cache_key", cache_key))
 
         _bound_prompt_cache_key_field(kwargs.get("extra_body"))
