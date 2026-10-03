@@ -82,6 +82,49 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+describe('namespaced catalog identities', () => {
+  const models = ['kud/gpt-6.1-sol', 'f-x20/gpt-6.1-sol']
+
+  beforeEach(() => {
+    getGlobalModelOptions.mockResolvedValue({
+      providers: [{ models, name: 'Test endpoint', slug: 'custom:test' }]
+    })
+  })
+
+  it('shows exact ids for identical friendly names and selects each original id', async () => {
+    const select = renderMenu()
+
+    await screen.findAllByText('GPT-6.1-sol')
+    expect(screen.getAllByText('GPT-6.1-sol')).toHaveLength(2)
+
+    for (const model of models) {
+      const id = screen.getByText(model)
+      const row = id.closest('[role="menuitem"]')!
+
+      expect(row.textContent).toContain('GPT-6.1-sol')
+      fireEvent.click(row)
+      await waitFor(() => expect(select).toHaveBeenLastCalledWith(model, 'custom:test'))
+    }
+  })
+
+  it('searches the full namespace id and commits it unchanged with Enter', async () => {
+    const select = renderMenu()
+
+    await screen.findAllByText('GPT-6.1-sol')
+    const input = screen.getByRole('textbox', { name: 'Search models' })
+
+    for (const model of models) {
+      fireEvent.change(input, { target: { value: model } })
+      await waitFor(() => {
+        expect(screen.getByText(model, { selector: 'mark' })).toBeTruthy()
+        expect(screen.queryByText(models.find(other => other !== model)!)).toBeNull()
+      })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await waitFor(() => expect(select).toHaveBeenLastCalledWith(model, 'custom:test'))
+    }
+  })
+})
+
 describe('the current row effort', () => {
   it('does not label the current model with the profile default before its session reports one (#79807)', async () => {
     $defaultReasoningEffort.set('ultra')

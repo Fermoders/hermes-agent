@@ -755,15 +755,27 @@ export function ModelCatalogMenu({
                           }}
                           {...kbRowProps(`${group.provider.slug}:${family.id}`)}
                         >
-                          <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                            <span className="min-w-0 truncate">
-                              <HighlightMatches foldSeparators query={search} text={name} />
+                          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="min-w-0 truncate">
+                                <HighlightMatches foldSeparators query={search} text={name} />
+                              </span>
+                              {metaTags.map(chip => (
+                                <Badge
+                                  className="shrink-0 uppercase tracking-wide"
+                                  key={chip}
+                                  size="xs"
+                                  variant="muted"
+                                >
+                                  {chip}
+                                </Badge>
+                              ))}
                             </span>
-                            {metaTags.map(chip => (
-                              <Badge className="shrink-0 uppercase tracking-wide" key={chip} size="xs" variant="muted">
-                                {chip}
-                              </Badge>
-                            ))}
+                            {family.id.includes('/') ? (
+                              <span className="break-all font-mono text-[0.625rem] text-(--ui-text-tertiary)">
+                                <HighlightMatches foldSeparators query={search} text={activeId ?? family.id} />
+                              </span>
+                            ) : null}
                           </span>
                           {loadProgress ? (
                             <span
