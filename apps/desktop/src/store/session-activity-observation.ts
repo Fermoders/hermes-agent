@@ -4,11 +4,14 @@ import { atom } from 'nanostores'
 export const $sessionActivityObservationEpoch = atom(0)
 let revision = 0
 const observations = new WeakMap<object, number>()
+
 export function observeSessionActivity(value: object): number {
   const next = ++revision
   observations.set(value, next)
+
   return next
 }
+
 export function sessionActivityObservation(value: object): number {
   return observations.get(value) ?? 0
 }

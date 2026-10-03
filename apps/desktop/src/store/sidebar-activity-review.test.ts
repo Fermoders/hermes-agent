@@ -1,16 +1,19 @@
+import { backendScopeKey } from '@hermes/shared'
 import { afterEach, expect, it } from 'vitest'
-import { $cronSessions, $messagingSessions, $sessions, reconcileSessionDescendantActivity } from './session'
-import { $delegatingSessionIds, $sessionDotStateById, sessionDotStateFor, sessionStatusBucket } from './session-dot-state'
-import { $profileDotStateByScope } from './profile-dot-state'
-import { setSidebarOrdering } from './layout'
-import { $sidebarSessionRankIds } from './sidebar-sort'
-import { clearAllSessionStates, publishSessionState, recordSessionEventScope } from './session-states'
-import { $subagentsBySession, reconcileSubagentSnapshot } from './subagents'
+
 import { createClientSessionState } from '@/lib/chat-runtime'
 import type { SessionInfo } from '@/types/hermes'
-import { backendScopeKey } from '@hermes/shared'
+
+import { setSidebarOrdering } from './layout'
+import { $profileDotStateByScope } from './profile-dot-state'
+import { $cronSessions, $messagingSessions, $sessions, reconcileSessionDescendantActivity } from './session'
+import { $delegatingSessionIds, $sessionDotStateById, sessionDotStateFor, sessionStatusBucket } from './session-dot-state'
+import { clearAllSessionStates, publishSessionState, recordSessionEventScope } from './session-states'
+import { $sidebarSessionRankIds } from './sidebar-sort'
+import { $subagentsBySession, reconcileSubagentSnapshot } from './subagents'
 
 const key = (connection: string, profile: string, id = 'same') => `${backendScopeKey(connection, profile)}::${id}`
+
 const row = (connection_id: string, profile: string, count: number): SessionInfo =>
   ({ id: 'same', connection_id, profile, active_descendant_count: count }) as SessionInfo
 
@@ -30,6 +33,7 @@ it.each([
 ])('isolates distinct compression tips sharing a root: %s/%s vs %s/%s', (a, one, b, two) => {
   const active = { ...row(a, one, 1), id: 'tip-a', _lineage_root_id: 'root', _lineage_ids: ['root', 'tip-a'] }
   const idle = { ...row(b, two, 0), id: 'tip-b', _lineage_root_id: 'root', _lineage_ids: ['root', 'tip-b'] }
+
   for (const rows of [[idle, active], [active, idle]]) {
     $sessions.set(rows)
     const dots = $sessionDotStateById.get()
@@ -70,6 +74,7 @@ it('session.info reconciliation and lineage activity stay within the exact conne
     _lineage_root_id: 'root',
     _lineage_ids: ['root', 'same']
   }))
+
   $sessions.set(rows)
   reconcileSessionDescendantActivity('same', 1, { connectionId: 'a', profile: 'one' })
   expect($sessions.get().map(r => r.active_descendant_count)).toEqual([1, 0, 0])

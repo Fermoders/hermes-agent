@@ -328,9 +328,11 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     }
 
     const error = new Error(String(result?.error || 'File preview failed.')) as Error & { code?: string }
+
     if (result?.code) {
       error.code = String(result.code)
     }
+
     throw error
   },
   readFileDataUrlForAttach: filePath => ipcRenderer.invoke('hermes:readFileDataUrlForAttach', filePath),

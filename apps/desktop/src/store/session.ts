@@ -1,9 +1,4 @@
 import { backendScopeKey, type ConnectionState } from '@hermes/shared'
-import {
-  $sessionActivityObservationEpoch,
-  observeSessionActivity,
-  sessionActivityObservation
-} from './session-activity-observation'
 import { atom, computed } from 'nanostores'
 
 import { setApiRequestLocalMode } from '@/api/client'
@@ -21,6 +16,11 @@ import type { TileSessionFocusStamp } from '@/lib/session-timer-since'
 import { persistBoolean, persistString, readJson, storedBoolean, storedString, writeJson } from '@/lib/storage'
 import type { SessionInfo, UsageStats } from '@/types/hermes'
 
+import {
+  $sessionActivityObservationEpoch,
+  observeSessionActivity,
+  sessionActivityObservation
+} from './session-activity-observation'
 import { $removedSessionIds, isSessionRemovalPending, tombstoneRowIds } from './session-removal'
 import type { SessionOwnerRoute, SessionOwnerScope } from './session-request-router'
 import { clearUnreadOnOpen } from './session-unread-remote'
@@ -1494,15 +1494,17 @@ export const sessionActivityKey = (row: Pick<SessionInfo, 'id' | 'profile' | 'co
 for (const store of [$sessions, $messagingSessions, $cronSessions]) {
   store.listen(rows => {
     for (const row of rows) {
-      if (!sessionActivityObservation(row)) observeSessionActivity(row)
+      if (!sessionActivityObservation(row)) {observeSessionActivity(row)}
     }
   })
 }
 
 export function observeSessionActivityPage(incoming: SessionInfo[]) {
   const loaded = [...$sessions.get(), ...$messagingSessions.get(), ...$cronSessions.get()]
+
   for (const row of incoming) {
-    if (typeof row.active_descendant_count !== 'number') continue
+    if (typeof row.active_descendant_count !== 'number') {continue}
+
     for (const cached of loaded) {
       if (
         sessionActivityKey(cached) === sessionActivityKey(row) &&
@@ -1512,6 +1514,7 @@ export function observeSessionActivityPage(incoming: SessionInfo[]) {
       }
     }
   }
+
   $sessionActivityObservationEpoch.set($sessionActivityObservationEpoch.get() + 1)
 }
 
@@ -1520,21 +1523,26 @@ export function reconcileSessionDescendantActivity(
   count: number | undefined,
   scope?: { connectionId?: null | string; profile?: null | string }
 ) {
-  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) return
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) {return}
   const all = [...$sessions.get(), ...$messagingSessions.get(), ...$cronSessions.get()]
   const candidates = all.filter(row => sessionMatchesStoredId(row, storedId))
   const scopes = new Set(candidates.map(row => backendScopeKey(row.connection_id, row.profile)))
   // Legacy untagged events may resolve only an unambiguous conversation.
   const owner = scope ? backendScopeKey(scope.connectionId, scope.profile) : scopes.size === 1 ? [...scopes][0] : null
-  if (!owner) return
+
+  if (!owner) {return}
+
   const patch = (rows: SessionInfo[]) =>
     rows.map(row => {
       if (!sessionMatchesStoredId(row, storedId) || backendScopeKey(row.connection_id, row.profile) !== owner)
-        return row
+        {return row}
+
       const next = { ...row, active_descendant_count: count }
       observeSessionActivity(next)
+
       return next
     })
+
   updateAtom($sessions, patch)
   updateAtom($messagingSessions, patch)
   updateAtom($cronSessions, patch)

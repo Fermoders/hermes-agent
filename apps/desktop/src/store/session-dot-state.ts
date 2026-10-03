@@ -23,12 +23,13 @@
  * surface). The write side of the persisted flag lives in session-unread.ts.
  */
 
+import { backendScopeKey } from '@hermes/shared'
 import { computed } from 'nanostores'
 
 import { stableArray, stableRecord } from '@/lib/stable-array'
+import type { SessionInfo } from '@/types/hermes'
 
 import { $backgroundRunningSessionIds } from './composer-status'
-import { backendScopeKey } from '@hermes/shared'
 import {
   $cronSessions,
   $messagingSessions,
@@ -40,7 +41,6 @@ import {
 } from './session'
 import { $sessionActivityObservationEpoch, sessionActivityObservation } from './session-activity-observation'
 import { runtimeSessionOwner } from './session-states'
-import type { SessionInfo } from '@/types/hermes'
 import {
   $attentionSessionIds,
   $draftSessionIds,
@@ -65,58 +65,76 @@ export const $delegatingSessionIds = computed(
   (bySession, states, sessions, messaging, cron) => {
     const rows = [...sessions, ...messaging, ...cron]
     const facts = new Map<string, { count: number; revision: number }>()
+
     const publish = (key: string, count: number, revision: number) => {
-      if (revision >= (facts.get(key)?.revision ?? -1)) facts.set(key, { count, revision })
+      if (revision >= (facts.get(key)?.revision ?? -1)) {facts.set(key, { count, revision })}
     }
+
     for (const row of rows) {
-      if (typeof row.active_descendant_count !== 'number') continue
+      if (typeof row.active_descendant_count !== 'number') {continue}
+
       const family = rows.filter(
         r => backendScopeKey(r.connection_id, r.profile) === backendScopeKey(row.connection_id, row.profile)
       )
+
       for (const alias of lineageAliases(row.id, family)) {
         publish(sessionActivityKey({ ...row, id: alias }), row.active_descendant_count, sessionActivityObservation(row))
       }
     }
+
     for (const [runtimeId, items] of Object.entries(bySession)) {
       const stored = states[runtimeId]?.storedSessionId ?? runtimeId
       const owner = runtimeSessionOwner(runtimeId)
+
       const scope =
         typeof owner === 'string'
           ? backendScopeKey(null, owner)
           : owner
             ? backendScopeKey(owner.connectionId, owner.profile)
             : null
+
       const matches = rows.filter(
         row =>
           sessionMatchesStoredId(row, stored) && (!scope || backendScopeKey(row.connection_id, row.profile) === scope)
       )
+
       const scopes = new Set(matches.map(row => backendScopeKey(row.connection_id, row.profile)))
-      if (!scope && scopes.size > 1) continue
+
+      if (!scope && scopes.size > 1) {continue}
       const count = activeSubagentCount(items)
       const revision = sessionActivityObservation(items)
-      if (!matches.length) publish(stored, count, revision)
+
+      if (!matches.length) {publish(stored, count, revision)}
+
       for (const row of matches) {
         const family = rows.filter(
           r => backendScopeKey(r.connection_id, r.profile) === backendScopeKey(row.connection_id, row.profile)
         )
+
         for (const alias of lineageAliases(stored, family))
-          publish(sessionActivityKey({ ...row, id: alias }), count, revision)
+          {publish(sessionActivityKey({ ...row, id: alias }), count, revision)}
       }
     }
+
     const ids = new Set<string>()
-    for (const [key, fact] of facts) if (fact.count > 0) ids.add(key)
+
+    for (const [key, fact] of facts) {if (fact.count > 0) {ids.add(key)}}
+
     // A unique tip does not make its compression root unique across backends.
     for (const row of rows) {
       const family = rows.filter(
         r => backendScopeKey(r.connection_id, r.profile) === backendScopeKey(row.connection_id, row.profile)
       )
+
       for (const alias of lineageAliases(row.id, family)) {
         const scopes = new Set(
           rows.filter(r => sessionMatchesStoredId(r, alias)).map(r => backendScopeKey(r.connection_id, r.profile))
         )
-        if (scopes.size === 1 && ids.has(sessionActivityKey({ ...row, id: alias }))) ids.add(alias)
+
+        if (scopes.size === 1 && ids.has(sessionActivityKey({ ...row, id: alias }))) {ids.add(alias)}
       }
     }
+
     return (delegatingIds = stableArray(delegatingIds, [...ids]))
   }
 )
@@ -198,11 +216,13 @@ export const $sessionDotStateById = computed(
 
     const scopesByAlias = new Map<string, Set<string>>()
     const qualifiedAliases = new Map<string, string[]>()
+
     for (const row of sessions) {
       const scope = backendScopeKey(row.connection_id, row.profile)
       const family = sessions.filter(r => backendScopeKey(r.connection_id, r.profile) === scope)
       const aliases = lineageAliases(row.id, family)
       const keys = aliases.map(id => sessionActivityKey({ ...row, id }))
+
       for (const alias of aliases) {
         const scopes = scopesByAlias.get(alias) ?? new Set<string>()
         scopes.add(scope)
@@ -210,22 +230,28 @@ export const $sessionDotStateById = computed(
         qualifiedAliases.set(sessionActivityKey({ ...row, id: alias }), keys)
       }
     }
+
     const claimAliases = (id: string): string[] => {
       const qualified = qualifiedAliases.get(id)
-      if (qualified) return qualified
+
+      if (qualified) {return qualified}
       const scopes = scopesByAlias.get(id)
-      if (!scopes) return [id]
-      if (scopes.size !== 1) return []
+
+      if (!scopes) {return [id]}
+
+      if (scopes.size !== 1) {return []}
       const scope = [...scopes][0]
       const family = sessions.filter(r => backendScopeKey(r.connection_id, r.profile) === scope)
+
       return lineageAliases(id, family).flatMap(alias => [
         `${scope}::${alias}`,
         ...(scopesByAlias.get(alias)?.size === 1 ? [alias] : [])
       ])
     }
+
     const claim = (ids: readonly string[], state: SessionDotState) => {
       for (const id of ids) {
-        for (const alias of claimAliases(id)) next[alias] = state
+        for (const alias of claimAliases(id)) {next[alias] = state}
       }
     }
 
@@ -297,28 +323,38 @@ export const $sessionDotStateById = computed(
           r => backendScopeKey(r.connection_id, r.profile) === backendScopeKey(row.connection_id, row.profile)
         )
       )
+
       const scopedKey = sessionActivityKey(row)
+
       for (const [runtimeId, runtime] of Object.entries(states)) {
-        if (!runtime.storedSessionId || !aliases.includes(runtime.storedSessionId)) continue
+        if (!runtime.storedSessionId || !aliases.includes(runtime.storedSessionId)) {continue}
         const owner = runtimeSessionOwner(runtimeId)
+
         const scope =
           typeof owner === 'string'
             ? backendScopeKey(null, owner)
             : owner
               ? backendScopeKey(owner.connectionId, owner.profile)
               : null
-        if (scope && scope !== backendScopeKey(row.connection_id, row.profile)) continue
-        if (!scope && scopesByAlias.get(runtime.storedSessionId)?.size !== 1) continue
-        if (runtime.busy) next[scopedKey] = stalled.some(id => aliases.includes(id)) ? 'stalled' : 'working'
-        if (runtime.needsInput) next[scopedKey] = 'needs-input'
+
+        if (scope && scope !== backendScopeKey(row.connection_id, row.profile)) {continue}
+
+        if (!scope && scopesByAlias.get(runtime.storedSessionId)?.size !== 1) {continue}
+
+        if (runtime.busy) {next[scopedKey] = stalled.some(id => aliases.includes(id)) ? 'stalled' : 'working'}
+
+        if (runtime.needsInput) {next[scopedKey] = 'needs-input'}
       }
+
       if (next[scopedKey]) {
         for (const alias of aliases) {
           next[sessionActivityKey({ ...row, id: alias })] = next[scopedKey]
-          if (scopesByAlias.get(alias)?.size === 1) next[alias] = next[scopedKey]
+
+          if (scopesByAlias.get(alias)?.size === 1) {next[alias] = next[scopedKey]}
         }
       }
     }
+
     return (dotStates = stableRecord(dotStates, next))
   }
 )

@@ -111,16 +111,19 @@ function limitLabel(item: LimitItem): string {
 
 function limitDetail(windowInfo: RemoteLimitWindow): string {
   const detail = String(windowInfo.detail || '').trim()
-  if (detail) return detail
+
+  if (detail) {return detail}
 
   return `${Math.round(numeric(windowInfo.used_percent))}%/${Math.round(numeric(windowInfo.elapsed_percent))}%`
 }
 
 function limitRemaining(windowInfo: RemoteLimitWindow): string {
   const supplied = String(windowInfo.remaining_text || '').trim()
-  if (supplied) return supplied
+
+  if (supplied) {return supplied}
 
   const seconds = numeric(windowInfo.remaining_seconds)
+
   return seconds > 0 ? `${Math.max(1, Math.ceil(seconds / 3_600))}ч` : ''
 }
 
@@ -131,7 +134,8 @@ function mapRemoteLimits(payload: RemoteLimitsPayload): LimitItem[] {
   const append = (model: 'gpt' | 'gpt_codex_spark', fallbackLabel: string, color: string) => {
     const windows = models[model]?.windows
     const windowInfo = Array.isArray(windows) ? windows[0] : null
-    if (!windowInfo) return
+
+    if (!windowInfo) {return}
 
     rows.push({
       provider: 'chatgpt',
@@ -148,6 +152,7 @@ function mapRemoteLimits(payload: RemoteLimitsPayload): LimitItem[] {
 
   append('gpt', '7д', '#9333ea')
   append('gpt_codex_spark', 'GPT-5.3-Codex-Spark ChatGPT 7д', '#60a5fa')
+
   return rows
 }
 
@@ -190,15 +195,17 @@ export function AiLimitsPanel({ requestGateway }: AiLimitsPanelProps) {
     let tokenSamples: TokenSample[] = []
 
     const refresh = async () => {
-      if (refreshing) return
+      if (refreshing) {return}
       refreshing = true
+
       const remotePromise = requestGateway<{ limits: RemoteLimitsPayload; usage: RemoteUsage }>('ai_limits.get')
         .then(result => ({ limits: mapRemoteLimits(result.limits), usage: result.usage }))
 
       const [remoteResult] = await Promise.allSettled([remotePromise])
 
       refreshing = false
-      if (disposed) return
+
+      if (disposed) {return}
 
       if (remoteResult.status === 'fulfilled') {
         const nextUsage = remoteResult.value.usage

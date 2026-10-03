@@ -1,6 +1,7 @@
 import { atom } from 'nanostores'
 
 import { capitalize } from '@/lib/text'
+
 import { observeSessionActivity } from './session-activity-observation'
 
 export type SubagentStatus = 'completed' | 'failed' | 'interrupted' | 'queued' | 'running'

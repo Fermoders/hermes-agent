@@ -8,7 +8,6 @@ import {
   useMessageRuntime,
   useThreadRuntime
 } from '@assistant-ui/react'
-import { ResponseTokenFooter } from '@/app/chat/token-stats'
 import { useStore } from '@nanostores/react'
 import { type FC, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useInRouterContext, useNavigate } from 'react-router'
@@ -16,6 +15,7 @@ import { useInRouterContext, useNavigate } from 'react-router'
 import { requestModelMenuToggle } from '@/app/chat/composer/focus'
 import { useComposerScope } from '@/app/chat/composer/scope'
 import { useSessionView } from '@/app/chat/session-view'
+import { ResponseTokenFooter } from '@/app/chat/token-stats'
 import { SETTINGS_ROUTE } from '@/app/routes'
 import { dispatchedTo } from '@/components/assistant-ui/thread/agent-delivery'
 import { ChangedFilesCard } from '@/components/assistant-ui/thread/changed-files-card'

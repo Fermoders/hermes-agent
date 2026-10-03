@@ -167,6 +167,7 @@ describe('descendant-only sidebar refresh', () => {
   })
   it('publishes start and finish counts through the real refresh in all slices', async () => {
     const { result } = renderHook(() => useSessionListActions({ profileScope: 'default' }))
+
     for (const count of [0, 1, 0]) {
       listSidebarSessions.mockResolvedValue(
         sidebar(
@@ -178,6 +179,7 @@ describe('descendant-only sidebar refresh', () => {
       await act(async () => {
         await result.current.refreshSessions()
       })
+
       for (const store of [$sessions, $cronSessions, $messagingSessions]) {
         expect(store.get()[0]?.active_descendant_count).toBe(count)
       }

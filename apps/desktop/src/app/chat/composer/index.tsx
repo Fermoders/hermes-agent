@@ -11,8 +11,8 @@ import {
   useRef
 } from 'react'
 
-import { useTourMarker } from '@/app/chat/tour-marker'
 import { ChatTokenPanel } from '@/app/chat/token-stats'
+import { useTourMarker } from '@/app/chat/tour-marker'
 import { useHudComposerDrag } from '@/app/hud/composer-drag'
 import { composerFloatingStrip, composerInputBacking } from '@/components/chat/composer-dock'
 import { $chatOnboardingSolo, $chatOnboardingThreadIds } from '@/components/onboarding-chat/assembly'
